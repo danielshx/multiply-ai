@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { persistMessage, findLeadIdByContact } from "@/lib/supabase/persistMessage";
+import { getPriorContext } from "@/lib/cognee/priorContext";
 
 /**
  * POST /api/watcher/trigger-mini — proxy that the Watcher Cron HR Workflow
@@ -48,13 +49,22 @@ export async function POST(req: Request) {
   const ctxBlob = body.business_context
     ? `\n\n[business_context]\n${JSON.stringify(body.business_context).slice(0, 600)}`
     : "";
+  const prior = await getPriorContext({
+    name: body.name,
+    company: body.company,
+    phone: body.phone_number,
+    email: body.email,
+    channel: "voice",
+  });
+  const priorBlob = prior ? `\n\n[prior_context]\n${prior}` : "";
+
   const payload = {
     name: body.name ?? "",
     company: body.company ?? "",
     phone_number: body.phone_number,
     email: body.email ?? "",
     current_time: body.current_time ?? new Date().toISOString(),
-    customer_goal: `${body.customer_goal ?? ""}${ctxBlob}`.slice(0, 1500),
+    customer_goal: `${body.customer_goal ?? ""}${ctxBlob}${priorBlob}`.slice(0, 2400),
   };
 
   const res = await fetch(HR_RUNS_URL, {

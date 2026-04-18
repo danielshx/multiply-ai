@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { sendEmail, EMAIL_FROM } from "@/lib/email/sender";
 import { persistMessage, findLeadIdByContact } from "@/lib/supabase/persistMessage";
+import { getPriorContext } from "@/lib/cognee/priorContext";
 
 /**
  * POST /api/watcher/trigger-email — Email Agent branch of the Watcher Cron
@@ -36,11 +37,43 @@ export async function POST(req: Request) {
     );
   }
 
-  const subject = subjectFor(body);
-  const text = bodyTextFor(body);
-  const html = bodyHtmlFor(body);
-
   const leadId = await findLeadIdByContact({ email: body.email });
+
+  // Pull what we already know from Cognee. Used both as an opt-out guard
+  // (don't email someone who said STOP) and to personalize the opener.
+  const prior = await getPriorContext({
+    name: body.name,
+    company: body.company,
+    email: body.email,
+    channel: "email",
+  });
+  const priorLower = prior.toLowerCase();
+  if (
+    priorLower.includes("opt_out") ||
+    priorLower.includes("unsubscrib") ||
+    priorLower.includes("do not contact") ||
+    priorLower.includes("stop sending")
+  ) {
+    await persistMessage({
+      lead_id: leadId,
+      role: "system",
+      channel: "email",
+      content: `✉️ Skipped — prior_context shows opt-out signal: ${prior.slice(0, 200)}`,
+    });
+    return NextResponse.json({
+      ok: true,
+      sent: false,
+      skipped: true,
+      reason: "opt_out_detected_in_prior_context",
+      from: EMAIL_FROM,
+      to: body.email,
+      prior_context: prior,
+    });
+  }
+
+  const subject = subjectFor(body);
+  const text = bodyTextFor(body, prior);
+  const html = bodyHtmlFor(body, prior);
 
   if (!process.env.GMAIL_APP_PASSWORD) {
     console.log(
@@ -116,57 +149,90 @@ export async function POST(req: Request) {
   });
 }
 
-function subjectFor(body: Body): string {
-  const company = body.company?.trim();
-  const goal = body.customer_goal?.trim();
-  if (goal && company) return `Multiply x ${company} — re: ${goal.slice(0, 60)}`;
-  if (company) return `Multiply x ${company} — quick intro`;
-  return "Multiply — quick intro";
+/**
+ * Mirror the Mini Voice Agent's prompt style: brutally short, one ask, no
+ * marketing fluff, language follows the lead's locale (DE for DACH).
+ *
+ * Pitch: AI courses — practical, hands-on, for people who want to actually
+ * build with AI, not theory. One question per email.
+ */
+function isDachContext(body: Body): boolean {
+  const text = `${body.name ?? ""} ${body.company ?? ""} ${body.email ?? ""} ${body.customer_goal ?? ""}`.toLowerCase();
+  return (
+    text.includes(".de") ||
+    text.includes(" gmbh") ||
+    text.includes("german") ||
+    text.includes("deutsch") ||
+    text.includes("münchen") ||
+    text.includes("munich") ||
+    text.includes("berlin") ||
+    text.includes("tum.ai") ||
+    text.includes("lmu")
+  );
 }
 
-function bodyTextFor(body: Body): string {
-  const name = body.name?.trim() || "there";
-  const company = body.company?.trim() || "your team";
-  const goal = body.customer_goal?.trim();
+function subjectFor(body: Body): string {
+  return isDachContext(body)
+    ? "AI Kurs — passt das?"
+    : "AI course — quick fit?";
+}
+
+function bodyTextFor(body: Body, prior: string): string {
+  const de = isDachContext(body);
+  const name = body.name?.trim().split(" ")[0] || (de ? "Hi" : "Hey");
+
+  if (de) {
+    return [
+      `Hi ${name},`,
+      ``,
+      prior ? `(Kurz aus unseren Notizen: ${prior})` : null,
+      prior ? `` : null,
+      `Wir bauen praktische AI-Kurse — kein Theorie-Geschwätz, du baust am ersten Tag selbst was.`,
+      ``,
+      `Passt für dich? Antworte einfach mit "ja" oder "nein".`,
+      ``,
+      `— Alex`,
+    ]
+      .filter((l) => l !== null)
+      .join("\n");
+  }
+
   return [
     `Hi ${name},`,
-    "",
-    `I'm Alex from Multiply — we run AI sales calls in parallel for GTM teams.`,
-    goal
-      ? `I noticed you're looking into "${goal}", and figured a short async intro is faster than chasing a calendar slot.`
-      : `Figured a short async intro is faster than chasing a calendar slot.`,
-    "",
-    `In one sentence: customers triple their booked meetings in month one without adding SDRs.`,
-    "",
-    `Two ways forward:`,
-    `  1. Reply with the best 20-min slot for a live demo this week.`,
-    `  2. Reply "send loom" and I'll drop a 3-min walkthrough video.`,
-    "",
-    `Either way, no pressure — and you can ignore this thread completely if it's not the right time for ${company}.`,
-    "",
+    ``,
+    prior ? `(Quick context from our notes: ${prior})` : null,
+    prior ? `` : null,
+    `We build hands-on AI courses — no theory fluff, you ship something on day one.`,
+    ``,
+    `Fit for you? Just reply "yes" or "no".`,
+    ``,
     `— Alex`,
-    `Multiply (HappyRobot × TUM.ai)`,
-    `${EMAIL_FROM}`,
-  ].join("\n");
+  ]
+    .filter((l) => l !== null)
+    .join("\n");
 }
 
-function bodyHtmlFor(body: Body): string {
-  const name = body.name?.trim() || "there";
-  const company = body.company?.trim() || "your team";
-  const goal = body.customer_goal?.trim();
-  const escGoal = goal ? escape(goal) : "";
-  return `<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.55; color: #111; max-width: 560px;">
-<p>Hi ${escape(name)},</p>
-<p>I'm Alex from <strong>Multiply</strong> — we run AI sales calls in parallel for GTM teams.</p>
-${goal ? `<p>I noticed you're looking into "<em>${escGoal}</em>", and figured a short async intro is faster than chasing a calendar slot.</p>` : `<p>Figured a short async intro is faster than chasing a calendar slot.</p>`}
-<p><strong>In one sentence:</strong> customers triple their booked meetings in month one without adding SDRs.</p>
-<p>Two ways forward:</p>
-<ol>
-  <li>Reply with the best 20-min slot for a live demo this week.</li>
-  <li>Reply <code>send loom</code> and I'll drop a 3-min walkthrough video.</li>
-</ol>
-<p style="color:#666; font-size:13px;">Either way, no pressure — and you can ignore this thread completely if it's not the right time for ${escape(company)}.</p>
-<p>— Alex<br/>Multiply (HappyRobot × TUM.ai)<br/><a href="mailto:${EMAIL_FROM}">${EMAIL_FROM}</a></p>
+function bodyHtmlFor(body: Body, prior: string): string {
+  const de = isDachContext(body);
+  const name = body.name?.trim().split(" ")[0] || (de ? "Hi" : "Hey");
+  const priorBlock = prior
+    ? `<p style="color:#666; font-size:12px; font-style:italic; margin:0 0 12px;">(${de ? "Kurz aus unseren Notizen" : "Quick context from our notes"}: ${escape(prior)})</p>`
+    : "";
+
+  const greeting = `Hi ${escape(name)},`;
+  const pitch = de
+    ? `Wir bauen praktische AI-Kurse — kein Theorie-Geschw&auml;tz, du baust am ersten Tag selbst was.`
+    : `We build hands-on AI courses — no theory fluff, you ship something on day one.`;
+  const ask = de
+    ? `Passt f&uuml;r dich? Antworte einfach mit <strong>"ja"</strong> oder <strong>"nein"</strong>.`
+    : `Fit for you? Just reply <strong>"yes"</strong> or <strong>"no"</strong>.`;
+
+  return `<!doctype html><html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 15px; line-height: 1.55; color: #111; max-width: 480px;">
+<p style="margin:0 0 12px;">${greeting}</p>
+${priorBlock}
+<p style="margin:0 0 12px;">${pitch}</p>
+<p style="margin:0 0 12px;">${ask}</p>
+<p style="margin:0; color:#444;">— Alex</p>
 </body></html>`;
 }
 
