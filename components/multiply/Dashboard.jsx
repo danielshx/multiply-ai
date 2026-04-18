@@ -1,0 +1,599 @@
+'use client';
+import React, { useState, useEffect } from 'react';
+import { Pill, Dot, Button, Panel, Avatar, Drawer, Card, IconArrow, IconPhone, IconExternal, IconLink } from './ui';
+import { INITIAL_SIGNALS, INCOMING_SIGNALS, PIPELINE, AGENT_LOOP, KPIS } from './mockData';
+
+export function Dashboard({ openCall, showToast, agentsPaused, signalCount, setView, companyData }) {
+  const [signals, setSignals] = useState(INITIAL_SIGNALS);
+  const [, setIncomingIdx] = useState(0);
+  const [signalDrawer, setSignalDrawer] = useState(null);
+  const [leadDrawer, setLeadDrawer] = useState(null);
+  const [kpiExpanded, setKpiExpanded] = useState(null);
+
+  useEffect(() => {
+    if (agentsPaused) return;
+    const id = setInterval(() => {
+      setIncomingIdx(i => {
+        if (i >= INCOMING_SIGNALS.length) return i;
+        const next = INCOMING_SIGNALS[i];
+        setSignals(prev => [{ ...next, id: `new_${Date.now()}`, time: 0, fresh: true }, ...prev].slice(0, 8));
+        return i + 1;
+      });
+    }, 7000);
+    return () => clearInterval(id);
+  }, [agentsPaused]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSignals(prev => prev.map(s => ({ ...s, time: s.time + 1, fresh: false })));
+    }, 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 1600, margin: '0 auto' }}>
+        <Header companyData={companyData} />
+        <HeroStrip openCall={openCall} />
+        <KpiRow signalCount={signalCount} expanded={kpiExpanded} setExpanded={setKpiExpanded} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)', gap: 16 }}>
+          <SignalFeed signals={signals} onSignalClick={setSignalDrawer} openCall={openCall} />
+          <AgentLoopPanel openCall={openCall} setView={setView} />
+        </div>
+        <PipelinePanel openCall={openCall} onCardClick={(card) => {
+          if (card.active) openCall();
+          else setLeadDrawer(card);
+        }} />
+      </div>
+
+      <SignalDrawer signal={signalDrawer} onClose={() => setSignalDrawer(null)} openCall={openCall} showToast={showToast} />
+      <LeadDrawer card={leadDrawer} onClose={() => setLeadDrawer(null)} showToast={showToast} />
+    </>
+  );
+}
+
+function Header({ companyData }) {
+  const now = new Date();
+  const hour = now.getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  return (
+    <div style={{ marginBottom: 4 }}>
+      <h1 className="serif" style={{ fontSize: 28, letterSpacing: -0.6, fontWeight: 400, marginBottom: 4 }}>
+        {greeting}.
+      </h1>
+      <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+        Your team opened 23 new hot leads overnight. <span style={{ color: 'var(--text)', fontWeight: 500 }}>Sarah Chen</span> at Northwind Robotics is on a live call right now.
+      </p>
+    </div>
+  );
+}
+
+function HeroStrip({ openCall }) {
+  return (
+    <Card padding={0} style={{ overflow: 'hidden', position: 'relative' }}>
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(90deg, transparent 0%, var(--accent-soft) 100%)',
+        opacity: 0.5,
+        pointerEvents: 'none',
+      }} />
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px', gap: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: 1, minWidth: 0 }}>
+          <div style={{ position: 'relative' }}>
+            <Avatar initials="SC" size={44} />
+            <div style={{
+              position: 'absolute', bottom: -2, right: -2,
+              width: 14, height: 14, borderRadius: '50%',
+              background: 'var(--danger)',
+              border: '2px solid var(--surface)',
+              animation: 'pulse 1.6s ease-in-out infinite',
+            }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+              <span style={{ fontSize: 15, fontWeight: 500, letterSpacing: -0.2 }}>Sarah Chen</span>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>· CTO, Northwind Robotics</span>
+              <Pill color="danger" size="sm">
+                <Dot color="danger" pulse size={5} />
+                Live · 4:12
+              </Pill>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              Qualifier agent is handling the call. Objection resolved at 01:58. Confidence <span style={{ color: 'var(--success)', fontWeight: 500 }}>78%</span> for booking a meeting.
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button variant="primary" size="md" onClick={openCall} icon={<IconPhone size={12} />}>
+            Listen in
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function KpiRow({ signalCount, expanded, setExpanded }) {
+  const kpis = [
+    { ...KPIS[0], value: signalCount, key: 'signals' },
+    { ...KPIS[1], key: 'leads' },
+    { ...KPIS[2], key: 'meetings' },
+    { ...KPIS[3], key: 'reply' },
+  ];
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+      {kpis.map((k) => (
+        <Card
+          key={k.key}
+          padding={18}
+          clickable
+          hoverLift
+          onClick={() => setExpanded(expanded === k.key ? null : k.key)}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 1, fontFamily: 'var(--mono)' }}>
+              {k.label}
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--text-quaternary)' }}>
+              <IconArrow size={10} />
+            </div>
+          </div>
+          <div className="serif" style={{ fontSize: 32, fontWeight: 400, letterSpacing: -1, marginBottom: 4 }}>
+            {typeof k.value === 'number' ? k.value.toLocaleString() : k.value}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontFamily: 'var(--mono)' }}>↗</span> {k.delta}
+          </div>
+          <MiniSparkline kpiKey={k.key} />
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function MiniSparkline({ kpiKey }) {
+  const data = {
+    signals: [40, 55, 48, 62, 70, 58, 75, 82, 78, 88, 95, 100],
+    leads: [20, 25, 22, 30, 35, 40, 38, 45, 50, 55, 60, 65],
+    meetings: [5, 8, 12, 15, 10, 18, 20, 25, 22, 30, 35, 37],
+    reply: [18, 19, 20, 22, 21, 23, 25, 24, 26, 27, 28, 28.4],
+  }[kpiKey] || [];
+  const max = Math.max(...data);
+  const points = data.map((v, i) => `${(i / (data.length - 1)) * 100},${30 - (v / max) * 28}`).join(' ');
+  return (
+    <svg viewBox="0 0 100 30" preserveAspectRatio="none" style={{ width: '100%', height: 20, marginTop: 8, display: 'block' }}>
+      <polyline
+        points={points}
+        fill="none"
+        stroke="var(--success)"
+        strokeWidth="1.5"
+        vectorEffect="non-scaling-stroke"
+      />
+    </svg>
+  );
+}
+
+function SignalFeed({ signals, onSignalClick, openCall }) {
+  return (
+    <Panel
+      title="Live signal feed"
+      subtitle="web intelligence · every 2s"
+      action={
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <Dot color="accent" pulse />
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 1 }}>streaming</span>
+        </div>
+      }
+    >
+      <div style={{ padding: '2px 0' }}>
+        {signals.map((s) => (
+          <SignalRow
+            key={s.id}
+            signal={s}
+            fresh={s.fresh}
+            onClick={() => s.company === 'Northwind Robotics' ? openCall() : onSignalClick(s)}
+          />
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function SignalRow({ signal, fresh, onClick }) {
+  const [hover, setHover] = useState(false);
+  const scoreTone = signal.score >= 85 ? 'accent' : signal.score >= 75 ? 'warning' : 'neutral';
+  const iconTones = {
+    accent: { bg: 'var(--accent-soft)', fg: 'var(--accent-text)', bd: 'var(--accent-border)' },
+    warning: { bg: 'var(--warning-soft)', fg: 'var(--warning)', bd: 'var(--warning-border)' },
+    purple: { bg: 'var(--purple-soft)', fg: 'var(--purple)', bd: 'var(--purple-border)' },
+    success: { bg: 'var(--success-soft)', fg: 'var(--success)', bd: 'var(--success-border)' },
+    info: { bg: 'var(--info-soft)', fg: 'var(--info)', bd: 'var(--info-border)' },
+  };
+  const tone = iconTones[signal.color];
+
+  return (
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        gap: 14,
+        padding: '14px 16px',
+        borderBottom: '1px solid var(--border-subtle)',
+        cursor: 'pointer',
+        background: hover ? 'var(--bg-subtle)' : 'transparent',
+        transition: 'background 120ms ease',
+        animation: fresh ? 'slide-in-right 400ms ease' : 'none',
+      }}
+    >
+      <div style={{
+        width: 30, height: 30, borderRadius: 'var(--radius-sm)',
+        background: tone.bg, color: tone.fg,
+        border: `1px solid ${tone.bd}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 12, fontWeight: 600, flexShrink: 0,
+        fontFamily: 'var(--mono)',
+      }}>
+        {signal.icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
+          <span style={{ fontSize: 14, fontWeight: 500, letterSpacing: -0.1 }}>{signal.company}</span>
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)', whiteSpace: 'nowrap' }}>
+            {fresh ? 'just now' : `${signal.time}m ago`}
+          </span>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.5 }}>{signal.desc}</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {signal.tags.map(t => <Pill key={t} color="neutral" size="xs">{t}</Pill>)}
+          <Pill color={scoreTone} size="xs">Score {signal.score}</Pill>
+          {hover && (
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500 }}>
+              Open <IconArrow size={10} />
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentLoopPanel({ openCall, setView }) {
+  return (
+    <Panel
+      title="Agent loop"
+      subtitle="Northwind · run #4821"
+      action={
+        <Button size="xs" variant="ghost" onClick={() => setView('trace')}>
+          Full trace <IconArrow size={10} />
+        </Button>
+      }
+    >
+      <div style={{ padding: 16 }}>
+        {AGENT_LOOP.map((step, i) => (
+          <AgentStep key={i} step={step} isLast={i === AGENT_LOOP.length - 1} onLiveClick={openCall} />
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function AgentStep({ step, isLast, onLiveClick }) {
+  const isLive = step.status === 'live';
+  const isDone = step.status === 'done';
+  const isQueued = step.status === 'queued';
+
+  return (
+    <div style={{ display: 'flex', gap: 12, position: 'relative', paddingBottom: isLast ? 0 : 12 }}>
+      <div style={{ flexShrink: 0, position: 'relative' }}>
+        <div style={{
+          width: 22, height: 22, borderRadius: '50%',
+          background: isLive ? 'var(--accent)' : isDone ? 'var(--success)' : 'var(--bg-subtle)',
+          border: `1px solid ${isLive ? 'var(--accent)' : isDone ? 'var(--success)' : 'var(--border-strong)'}`,
+          color: isLive || isDone ? '#fff' : 'var(--text-tertiary)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 10, fontWeight: 600, fontFamily: 'var(--mono)',
+          position: 'relative', zIndex: 1,
+        }}>
+          {isDone ? '✓' : step.num}
+        </div>
+        {!isLast && <div style={{ position: 'absolute', left: 10, top: 22, bottom: -12, width: 1, background: 'var(--border)' }} />}
+      </div>
+      <div
+        onClick={isLive ? onLiveClick : undefined}
+        style={{ flex: 1, cursor: isLive ? 'pointer' : 'default' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 2 }}>
+          <span style={{ fontSize: 13, fontWeight: 500, color: isQueued ? 'var(--text-tertiary)' : 'var(--text)' }}>
+            {step.name}
+          </span>
+          <Pill color={isLive ? 'accent' : isDone ? 'success' : 'neutral'} size="xs">
+            {isLive && <Dot color="accent" pulse size={4} />}
+            {step.status} · {step.time}
+          </Pill>
+        </div>
+        <div style={{ fontSize: 12, color: isQueued ? 'var(--text-quaternary)' : 'var(--text-secondary)', lineHeight: 1.5 }}>
+          {step.desc}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PipelinePanel({ onCardClick }) {
+  const cols = [
+    { key: 'detected', title: 'Detected', count: 82 },
+    { key: 'engaged', title: 'Engaged', count: 54 },
+    { key: 'qualified', title: 'Qualified', count: 31 },
+    { key: 'booked', title: 'Booked', count: 17 },
+    { key: 'closed', title: 'Closed', count: 8 },
+  ];
+  return (
+    <Panel
+      title="Pipeline"
+      subtitle="agents move cards in real time"
+      action={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 1 }}>
+          <span style={{ width: 3, height: 10, background: 'var(--accent)', borderRadius: 1 }} />
+          moved by AI
+        </div>
+      }
+    >
+      <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+        {cols.map(col => (
+          <div key={col.key} style={{
+            background: 'var(--bg-subtle)',
+            borderRadius: 'var(--radius-md)',
+            padding: 12,
+            minHeight: 200,
+          }}>
+            <div style={{
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              marginBottom: 12, paddingBottom: 10,
+              borderBottom: '1px solid var(--border-subtle)',
+            }}>
+              <span style={{ fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-secondary)', fontFamily: 'var(--mono)' }}>
+                {col.title}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>{col.count}</span>
+            </div>
+            {PIPELINE[col.key].map((card, i) => (
+              <PipelineCard key={i} card={card} onClick={() => onCardClick(card)} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function PipelineCard({ card, onClick }) {
+  const [hover, setHover] = useState(false);
+  const scoreColor = card.score >= 90 ? 'var(--success)' : card.score >= 80 ? 'var(--warning)' : 'var(--text-secondary)';
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        background: 'var(--surface)',
+        border: `1px solid ${card.active ? 'var(--accent)' : hover ? 'var(--border-strong)' : 'var(--border)'}`,
+        borderLeft: card.moved ? '3px solid var(--accent)' : `1px solid ${card.active ? 'var(--accent)' : hover ? 'var(--border-strong)' : 'var(--border)'}`,
+        borderRadius: 'var(--radius-sm)',
+        padding: '9px 11px',
+        marginBottom: 8,
+        cursor: 'pointer',
+        transition: 'all 120ms ease',
+        position: 'relative',
+        boxShadow: hover ? 'var(--shadow-xs)' : 'none',
+      }}
+    >
+      {card.active && (
+        <div style={{
+          position: 'absolute', top: 8, right: 8,
+          width: 6, height: 6, borderRadius: '50%', background: 'var(--danger)',
+          animation: 'pulse 1.2s ease-in-out infinite',
+        }} />
+      )}
+      <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: -0.1, marginBottom: 4, paddingRight: card.active ? 14 : 0 }}>
+        {card.company}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontFamily: 'var(--mono)' }}>
+        <span style={{ color: scoreColor, fontWeight: 500 }}>{card.score}</span>
+        <span style={{ color: 'var(--text-tertiary)' }}>{card.time}</span>
+      </div>
+    </div>
+  );
+}
+
+function SignalDrawer({ signal, onClose, showToast }) {
+  if (!signal) return null;
+  return (
+    <Drawer
+      open={!!signal}
+      onClose={onClose}
+      title={signal.company}
+      subtitle={`Signal · ${signal.type} · score ${signal.score}`}
+      actions={
+        <>
+          <Button variant="default" onClick={onClose}>Close</Button>
+          <Button variant="primary" onClick={() => { onClose(); showToast(`Prospector agent opening ${signal.company}`, 'success'); }}>
+            Open lead
+          </Button>
+        </>
+      }
+    >
+      <DrawerSection label="Signal detail">
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          {signal.desc}
+        </div>
+      </DrawerSection>
+
+      <DrawerSection label="Tags">
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {signal.tags.map(t => <Pill key={t} color="neutral" size="sm">{t}</Pill>)}
+        </div>
+      </DrawerSection>
+
+      <DrawerSection label="Source">
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: 12,
+          background: 'var(--bg-subtle)',
+          borderRadius: 'var(--radius-md)',
+          border: '1px solid var(--border-subtle)',
+        }}>
+          <IconLink size={13} />
+          <span style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--mono)' }}>
+            {signal.type === 'funding' ? 'techcrunch.com/2026/04/northwind-series-b' :
+             signal.type === 'hiring' ? 'linkedin.com/jobs/vantage-biotech' :
+             signal.type === 'social' ? 'linkedin.com/posts/meridian-vp-ops' :
+             signal.type === 'stack' ? 'builtwith.com/acmefintech.com' :
+             'reuters.com/philips-acquires-orbital-health'}
+          </span>
+          <button style={{ color: 'var(--text-tertiary)' }} onClick={() => showToast('Opening source in new tab', 'info')}>
+            <IconExternal size={12} />
+          </button>
+        </div>
+      </DrawerSection>
+
+      <DrawerSection label="Agent enrichment">
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          <div style={{ padding: 10, background: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--mono)', marginBottom: 6 }}>
+            <span style={{ color: 'var(--success)' }}>✓</span> Prospector · enriched firmographics
+          </div>
+          <div style={{ padding: 10, background: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--mono)', marginBottom: 6 }}>
+            <span style={{ color: 'var(--success)' }}>✓</span> Researcher · identified 3 decision-makers
+          </div>
+          <div style={{ padding: 10, background: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)', fontFamily: 'var(--mono)' }}>
+            <span style={{ color: 'var(--accent)' }}>›</span> Personaliser · drafting outbound
+          </div>
+        </div>
+      </DrawerSection>
+
+      <DrawerSection label="Lead score breakdown">
+        <ScoreBar label="ICP fit" value={91} />
+        <ScoreBar label="Intent strength" value={88} />
+        <ScoreBar label="Recency" value={100} />
+        <ScoreBar label="Team access" value={signal.score >= 85 ? 85 : 60} />
+      </DrawerSection>
+    </Drawer>
+  );
+}
+
+function LeadDrawer({ card, onClose, showToast }) {
+  if (!card) return null;
+  return (
+    <Drawer
+      open={!!card}
+      onClose={onClose}
+      title={card.company}
+      subtitle={`Lead · score ${card.score} · updated ${card.time}`}
+      actions={
+        <>
+          <Button variant="default" onClick={onClose}>Close</Button>
+          <Button variant="primary" onClick={() => { showToast(`Opening conversation with ${card.company}`, 'info'); }}>
+            View conversation
+          </Button>
+        </>
+      }
+    >
+      <DrawerSection label="Decision-maker">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, background: 'var(--bg-subtle)', borderRadius: 'var(--radius-md)' }}>
+          <Avatar initials={card.company.slice(0, 2).toUpperCase()} size={36} />
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>Contact enriched</div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Decision-maker identified via LinkedIn + Apollo</div>
+          </div>
+        </div>
+      </DrawerSection>
+
+      <DrawerSection label="BANT">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          {[
+            { l: 'Budget', v: '$50K–$250K' },
+            { l: 'Authority', v: 'Decision-maker' },
+            { l: 'Need', v: 'Pipeline tooling' },
+            { l: 'Timeline', v: 'Q2 / Q3 2026' },
+          ].map((b, i) => (
+            <div key={i} style={{ padding: 12, background: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)' }}>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3, fontFamily: 'var(--mono)' }}>
+                {b.l}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 500 }}>{b.v}</div>
+            </div>
+          ))}
+        </div>
+      </DrawerSection>
+
+      <DrawerSection label="Activity timeline">
+        <TimelineItem time="2m ago" channel="Signal" text="Detected via signal feed" />
+        <TimelineItem time="1m ago" channel="Email" text="Outbound sent by Personaliser" />
+        <TimelineItem time="32s ago" channel="Open" text="Email opened from company HQ" />
+        <TimelineItem time="now" channel="Queue" text="Follow-up SMS queued for tomorrow 10am" dim />
+      </DrawerSection>
+
+      <DrawerSection label="Queued actions">
+        <QueuedAction text="Send follow-up SMS · tomorrow 10am" channel="SMS" />
+        <QueuedAction text="Propose 3 meeting slots" channel="Calendar" />
+        <QueuedAction text="Sync to HubSpot · stage: Engaged" channel="CRM" />
+      </DrawerSection>
+    </Drawer>
+  );
+}
+
+function DrawerSection({ label, children }) {
+  return (
+    <div style={{ marginBottom: 22 }}>
+      <div style={{
+        fontSize: 10, color: 'var(--text-tertiary)',
+        textTransform: 'uppercase', letterSpacing: 1.2,
+        marginBottom: 10, fontFamily: 'var(--mono)', fontWeight: 500,
+      }}>
+        {label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ScoreBar({ label, value }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{label}</span>
+        <span style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--text)', fontWeight: 500 }}>{value}</span>
+      </div>
+      <div style={{ height: 4, background: 'var(--bg-subtle)', borderRadius: 2 }}>
+        <div style={{
+          height: '100%',
+          width: `${value}%`,
+          background: value >= 85 ? 'var(--success)' : value >= 70 ? 'var(--accent)' : 'var(--warning)',
+          borderRadius: 2,
+          transition: 'width 400ms ease',
+        }} />
+      </div>
+    </div>
+  );
+}
+
+function TimelineItem({ time, channel, text, dim }) {
+  return (
+    <div style={{ display: 'flex', gap: 10, padding: '8px 0', borderBottom: '1px solid var(--border-subtle)', opacity: dim ? 0.6 : 1 }}>
+      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)', width: 56, flexShrink: 0 }}>{time}</div>
+      <Pill size="xs" color="neutral">{channel}</Pill>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1 }}>{text}</div>
+    </div>
+  );
+}
+
+function QueuedAction({ text, channel }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--bg-subtle)', borderRadius: 'var(--radius-sm)', marginBottom: 6 }}>
+      <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--border-strong)' }} />
+      <span style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)' }}>{text}</span>
+      <Pill size="xs" color="neutral">{channel}</Pill>
+    </div>
+  );
+}
