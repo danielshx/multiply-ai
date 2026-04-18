@@ -1,165 +1,106 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
-import { Panel, Field, TextArea, Button, IconPhone } from '@/components/multiply/ui';
-
-const STORAGE_KEY = 'us-outreach-campaign-v1';
+import { Panel, TextArea, Button, IconPhone } from '@/components/multiply/ui';
 
 /**
- * CampaignPanel — paste N numbers, set batch + interval, click Start. Every
- * <interval> seconds we fire <batchSize> triggers in parallel, pop those from
- * the queue, and stop when empty. State persists to localStorage so a page
- * reload doesn't lose the remaining queue.
+ * CampaignPanel — dead-simple queue drain.
+ *
+ *   Left box (PENDING)                Right box (CALLED)
+ *   Paste numbers, one per line       Auto-filled as they're dialed
+ *
+ * Every <interval> seconds while running:
+ *   1. take the first line from PENDING
+ *   2. trigger the call
+ *   3. move the line to CALLED
+ *   4. repeat
+ *
+ * No batches, no persistence, no resume-after-reload. Deliberately stupid.
  */
 export function CampaignPanel({ onTrigger }) {
-  const [queue, setQueue] = useState([]);
-  const [dialed, setDialed] = useState([]);
-  const [errorCount, setErrorCount] = useState(0);
-  const [rawText, setRawText] = useState('');
-  const [batchSize, setBatchSize] = useState(10);
-  const [intervalSec, setIntervalSec] = useState(60);
-  const [defaultCountry, setDefaultCountry] = useState('49');
+  const [pending, setPending] = useState('');
+  const [called, setCalled] = useState('');
+  const [intervalSec, setIntervalSec] = useState(10);
+  const [defaultCC, setDefaultCC] = useState('1');
   const [running, setRunning] = useState(false);
-  const [nextFireAt, setNextFireAt] = useState(null);
+  const [nextAt, setNextAt] = useState(null);
   const [now, setNow] = useState(Date.now());
-  const tickRef = useRef(null);
+  const [errorsCount, setErrorsCount] = useState(0);
+  const timerRef = useRef(null);
 
-  // Restore from localStorage once on mount
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const s = JSON.parse(raw);
-        if (Array.isArray(s.queue)) setQueue(s.queue);
-        if (Array.isArray(s.dialed)) setDialed(s.dialed);
-        if (typeof s.errorCount === 'number') setErrorCount(s.errorCount);
-        if (typeof s.batchSize === 'number') setBatchSize(s.batchSize);
-        if (typeof s.intervalSec === 'number') setIntervalSec(s.intervalSec);
-        if (typeof s.defaultCountry === 'string') setDefaultCountry(s.defaultCountry);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
+  const pendingLines = pending.split('\n').filter((l) => l.trim());
+  const calledLines = called.split('\n').filter((l) => l.trim());
 
-  // Persist on any change
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ queue, dialed, errorCount, batchSize, intervalSec, defaultCountry }),
-      );
-    } catch {
-      /* ignore */
-    }
-  }, [queue, dialed, errorCount, batchSize, intervalSec, defaultCountry]);
-
-  // Keep `now` ticking for the countdown display
+  // Keep `now` ticking for countdown display
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(id);
   }, []);
 
-  // The main firing loop
+  // Main interval loop — ONE call per tick
   useEffect(() => {
     if (!running) {
-      if (tickRef.current) clearTimeout(tickRef.current);
-      setNextFireAt(null);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      setNextAt(null);
       return;
     }
-    if (queue.length === 0) {
-      setRunning(false);
-      setNextFireAt(null);
-      return;
-    }
+    // Schedule next tick
     const fireAt = Date.now() + intervalSec * 1000;
-    setNextFireAt(fireAt);
-    tickRef.current = setTimeout(() => {
-      fireBatch();
-    }, intervalSec * 1000);
-    return () => {
-      if (tickRef.current) clearTimeout(tickRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, queue.length, intervalSec]);
+    setNextAt(fireAt);
 
-  async function fireBatch() {
-    const batch = queue.slice(0, batchSize);
-    if (batch.length === 0) {
-      setRunning(false);
-      return;
-    }
-    // Optimistically pop from queue so repeated timer ticks don't redo
-    setQueue((prev) => prev.slice(batch.length));
-    let newErrors = 0;
-    const newDialed = [];
-    await Promise.all(
-      batch.map(async (entry) => {
-        try {
-          const r = await onTrigger({ phone: entry.phone, name: entry.name || 'Friend' });
-          if (r.ok) {
-            newDialed.push({ ...entry, at: Date.now(), ok: true, call_id: r.call_id });
-          } else {
-            newErrors++;
-            newDialed.push({ ...entry, at: Date.now(), ok: false, error: r.error });
-          }
-        } catch (err) {
-          newErrors++;
-          newDialed.push({ ...entry, at: Date.now(), ok: false, error: err.message });
+    timerRef.current = setTimeout(async () => {
+      // Pick up the CURRENT pending list at fire time (not a stale closure)
+      setPending((currentPending) => {
+        const lines = currentPending.split('\n').filter((l) => l.trim());
+        if (lines.length === 0) {
+          setRunning(false);
+          return currentPending;
         }
-      }),
-    );
-    setDialed((prev) => [...newDialed, ...prev].slice(0, 500));
-    if (newErrors > 0) setErrorCount((x) => x + newErrors);
-  }
+        const [nextLine, ...rest] = lines;
+        const parsed = parseLine(nextLine, defaultCC);
+        if (!parsed) {
+          // unparseable line — skip it but still move on
+          setCalled((prev) => appendLine(prev, `${nextLine} [unparseable]`));
+          return rest.join('\n');
+        }
+        // Fire the call (async, don't block the tick)
+        onTrigger({ phone: parsed.phone, name: parsed.name || 'Friend' })
+          .then((r) => {
+            if (r.ok) {
+              setCalled((prev) => appendLine(prev, `✓ ${parsed.phone}${parsed.name ? ` · ${parsed.name}` : ''}`));
+            } else {
+              setErrorsCount((e) => e + 1);
+              setCalled((prev) => appendLine(prev, `✗ ${parsed.phone} — ${r.error ?? 'failed'}`));
+            }
+          })
+          .catch((err) => {
+            setErrorsCount((e) => e + 1);
+            setCalled((prev) => appendLine(prev, `✗ ${parsed.phone} — ${err.message}`));
+          });
+        return rest.join('\n');
+      });
+    }, intervalSec * 1000);
 
-  function parseAndLoad() {
-    const parsed = rawText
-      .split('\n')
-      .map((l) => parseLine(l, defaultCountry))
-      .filter(Boolean);
-    // De-dupe by phone
-    const seen = new Set(queue.map((q) => q.phone));
-    const add = parsed.filter((p) => !seen.has(p.phone));
-    setQueue((prev) => [...prev, ...add]);
-    setRawText('');
-  }
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+    // Re-run whenever running toggles, interval changes, OR the pending count
+    // changes (so the next scheduled tick sees fresh state).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [running, intervalSec, pendingLines.length]);
 
-  function clearAll() {
-    if (!confirm('Clear queue, history, and all campaign state?')) return;
-    setQueue([]);
-    setDialed([]);
-    setErrorCount(0);
-    setRunning(false);
-    setRawText('');
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  function fireNow() {
-    // Immediate one-shot batch, doesn't touch running state
-    fireBatch();
-  }
-
-  const total = queue.length + dialed.length;
-  const pct = total > 0 ? Math.round((dialed.length / total) * 100) : 0;
-  const secToNext = nextFireAt ? Math.max(0, Math.round((nextFireAt - now) / 1000)) : null;
-  const etaMin = running && queue.length > 0
-    ? Math.ceil((queue.length / batchSize) * intervalSec / 60)
-    : null;
+  const secToNext = nextAt ? Math.max(0, Math.round((nextAt - now) / 1000)) : null;
 
   return (
     <Panel
       title="Campaign"
-      subtitle="queue-drain · paste → time → auto-dial"
+      subtitle="one call every N seconds · paste → dial → history"
       action={
         <div style={{ display: 'flex', gap: 6 }}>
-          {queue.length > 0 && !running && (
+          {!running && pendingLines.length > 0 && (
             <button
               onClick={() => setRunning(true)}
               style={btnStyle('accent')}
+              title="Start firing"
             >
               ▶ Start
             </button>
@@ -169,142 +110,92 @@ export function CampaignPanel({ onTrigger }) {
               ⏸ Pause
             </button>
           )}
-          {queue.length > 0 && (
-            <button onClick={fireNow} style={btnStyle('ghost')} title="Fire one batch right now">
-              ⚡ Fire now
-            </button>
-          )}
-          {(queue.length > 0 || dialed.length > 0) && (
-            <button onClick={clearAll} style={btnStyle('danger')}>
-              Clear
-            </button>
-          )}
+          <button
+            onClick={() => {
+              if (!confirm('Clear both boxes?')) return;
+              setPending('');
+              setCalled('');
+              setErrorsCount(0);
+              setRunning(false);
+            }}
+            style={btnStyle('danger')}
+          >
+            Clear
+          </button>
         </div>
       }
     >
       <div style={{ padding: 18, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* Stats row */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-          <Stat label="In queue" value={queue.length} accent="info" />
-          <Stat label="Dialed" value={dialed.length} accent="success" />
-          <Stat label="Errors" value={errorCount} accent={errorCount > 0 ? 'danger' : 'neutral'} />
-          <Stat
-            label={running ? 'Next batch' : 'State'}
-            value={
-              running
-                ? secToNext != null
-                  ? `${secToNext}s`
-                  : '…'
-                : queue.length === 0
-                  ? 'idle'
-                  : 'paused'
-            }
-            mono
-            accent={running ? 'accent' : 'neutral'}
-          />
-          <Stat label="ETA" value={etaMin != null ? `~${etaMin}m` : '—'} mono />
+        {/* Controls strip */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 14,
+            alignItems: 'center',
+            fontSize: 12,
+            fontFamily: 'var(--mono)',
+          }}
+        >
+          <Label>interval</Label>
+          <NumInput value={intervalSec} onChange={setIntervalSec} min={2} max={3600} suffix="s" />
+          <Label>default cc</Label>
+          <CcInput value={defaultCC} onChange={setDefaultCC} />
+          <div style={{ flex: 1 }} />
+          <Stat label="pending" value={pendingLines.length} color="info" />
+          <Stat label="called" value={calledLines.length} color="success" />
+          {errorsCount > 0 && <Stat label="err" value={errorsCount} color="danger" />}
+          {running && (
+            <Stat
+              label="next in"
+              value={secToNext != null ? `${secToNext}s` : '…'}
+              color="accent"
+            />
+          )}
         </div>
 
-        {/* Progress bar */}
-        {total > 0 && (
+        {/* Two-box layout */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 14,
+          }}
+        >
           <div>
-            <div style={{ height: 6, background: 'var(--bg-subtle)', borderRadius: 999, overflow: 'hidden' }}>
-              <div
-                style={{
-                  width: `${pct}%`,
-                  height: '100%',
-                  background: 'linear-gradient(90deg, var(--accent), var(--success))',
-                  transition: 'width 300ms ease',
-                }}
-              />
-            </div>
-            <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>
-              {dialed.length}/{total} · {pct}%
-            </div>
+            <BoxLabel>Pending numbers (paste here)</BoxLabel>
+            <TextArea
+              value={pending}
+              onChange={setPending}
+              placeholder={'+15551234567\n+4915123456789\nMike, +447700900123'}
+              rows={14}
+            />
           </div>
-        )}
-
-        {/* Controls */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-          <Field label="Batch size" hint="How many calls per interval">
-            <NumberInput value={batchSize} onChange={setBatchSize} min={1} max={100} />
-          </Field>
-          <Field label="Interval (seconds)" hint="Wait between batches">
-            <NumberInput value={intervalSec} onChange={setIntervalSec} min={10} max={3600} />
-          </Field>
-          <Field label="Default country code" hint="For unprefixed numbers">
-            <CountryCodeInput value={defaultCountry} onChange={setDefaultCountry} />
-          </Field>
+          <div>
+            <BoxLabel>Called (filled as dialed)</BoxLabel>
+            <TextArea
+              value={called}
+              onChange={setCalled}
+              placeholder="— auto-fills as the queue runs —"
+              rows={14}
+            />
+          </div>
         </div>
 
-        {/* Paste area */}
-        <Field
-          label="Paste numbers (one per line)"
-          hint={`Parses on load. "+49…" or raw digits. Name optional. De-duped against existing queue.`}
-        >
-          <TextArea
-            value={rawText}
-            onChange={setRawText}
-            placeholder={'+4915123456789\n+15551234567\nMike, +447700900123\n15551112222'}
-            rows={6}
-          />
-        </Field>
-        <Button
-          onClick={parseAndLoad}
-          disabled={rawText.trim().length === 0}
-          variant="accent"
-          size="md"
-          icon={<IconPhone size={12} />}
-        >
-          Load into queue
-        </Button>
-
-        {/* History dropdown */}
-        {dialed.length > 0 && (
-          <details style={{ cursor: 'pointer' }}>
-            <summary style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>
-              Show last {Math.min(dialed.length, 20)} dialed
-            </summary>
-            <div
-              style={{
-                marginTop: 8,
-                maxHeight: 200,
-                overflow: 'auto',
-                background: 'var(--bg-subtle)',
-                padding: 10,
-                borderRadius: 'var(--radius-sm)',
-                fontSize: 11,
-                fontFamily: 'var(--mono)',
-              }}
-            >
-              {dialed.slice(0, 20).map((d, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: 'flex',
-                    gap: 10,
-                    color: d.ok ? 'var(--text-secondary)' : 'var(--danger)',
-                    lineHeight: 1.6,
-                  }}
-                >
-                  <span style={{ color: 'var(--text-tertiary)' }}>
-                    {new Date(d.at).toLocaleTimeString()}
-                  </span>
-                  <span>{d.ok ? '✓' : '✗'}</span>
-                  <span>{d.phone}</span>
-                  {d.name && <span style={{ color: 'var(--text-tertiary)' }}>({d.name})</span>}
-                  {d.error && <span style={{ color: 'var(--danger)' }}>{d.error.slice(0, 50)}</span>}
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
+        {/* Bottom help */}
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+          Paste one number per line (name comma-separated is optional). Hit <b>▶ Start</b>. Every <b>{intervalSec}s</b> the top line gets dialed and moved to the right box. Numbers without a <code>+</code> get prefixed with <code>+{defaultCC}</code>.
+        </div>
       </div>
     </Panel>
   );
 }
 
 // ---------- helpers ----------
+
+function appendLine(s, line) {
+  if (!s || !s.trim()) return line;
+  return s + '\n' + line;
+}
 
 function parseLine(line, defaultCC) {
   const trimmed = line.trim();
@@ -324,13 +215,12 @@ function parseLine(line, defaultCC) {
 }
 
 function btnStyle(variant) {
-  const styles = {
+  const map = {
     accent: { bg: 'var(--accent)', fg: '#fff', bd: 'var(--accent)' },
     warn: { bg: 'var(--warning-soft)', fg: 'var(--warning)', bd: 'var(--warning-border)' },
-    ghost: { bg: 'var(--surface)', fg: 'var(--text-secondary)', bd: 'var(--border-strong)' },
     danger: { bg: 'var(--surface)', fg: 'var(--danger)', bd: 'var(--danger-border)' },
   };
-  const s = styles[variant];
+  const s = map[variant];
   return {
     fontSize: 11,
     fontFamily: 'var(--mono)',
@@ -343,7 +233,15 @@ function btnStyle(variant) {
   };
 }
 
-function Stat({ label, value, accent = 'neutral', mono }) {
+function Label({ children }) {
+  return (
+    <span style={{ color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 0.4, fontSize: 10 }}>
+      {children}
+    </span>
+  );
+}
+
+function Stat({ label, value, color = 'neutral' }) {
   const colors = {
     neutral: 'var(--text)',
     accent: 'var(--accent)',
@@ -352,82 +250,101 @@ function Stat({ label, value, accent = 'neutral', mono }) {
     danger: 'var(--danger)',
   };
   return (
-    <div
+    <span
       style={{
-        background: 'var(--bg-subtle)',
-        borderRadius: 'var(--radius-md)',
-        padding: '10px 12px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 5,
+        fontFamily: 'var(--mono)',
+        fontSize: 12,
       }}
     >
-      <div
-        style={{
-          fontSize: 10,
-          color: 'var(--text-tertiary)',
-          letterSpacing: 0.4,
-          textTransform: 'uppercase',
-        }}
-      >
+      <span style={{ color: 'var(--text-tertiary)', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 }}>
         {label}
-      </div>
-      <div
-        style={{
-          fontSize: 20,
-          fontWeight: 500,
-          letterSpacing: -0.3,
-          color: colors[accent],
-          fontFamily: mono ? 'var(--mono)' : 'var(--sans)',
-          fontVariantNumeric: 'tabular-nums',
-          lineHeight: 1.1,
-        }}
-      >
+      </span>
+      <span style={{ color: colors[color], fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
         {value}
-      </div>
-    </div>
+      </span>
+    </span>
   );
 }
 
-function NumberInput({ value, onChange, min, max }) {
+function NumInput({ value, onChange, min, max, suffix }) {
   return (
-    <input
-      type="number"
-      value={value}
-      min={min}
-      max={max}
-      onChange={(e) => {
-        const v = Number(e.target.value);
-        if (!Number.isNaN(v)) onChange(Math.min(Math.max(v, min ?? 0), max ?? Infinity));
-      }}
+    <span
       style={{
-        width: '100%',
-        fontSize: 14,
-        fontFamily: 'var(--mono)',
-        padding: '8px 10px',
+        display: 'inline-flex',
+        alignItems: 'center',
         background: 'var(--surface)',
         border: '1px solid var(--border-strong)',
         borderRadius: 'var(--radius-sm)',
+        padding: '3px 8px',
       }}
-    />
+    >
+      <input
+        type="number"
+        value={value}
+        min={min}
+        max={max}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          if (!Number.isNaN(v)) onChange(Math.min(Math.max(v, min ?? 0), max ?? Infinity));
+        }}
+        style={{
+          width: 52,
+          fontSize: 12,
+          fontFamily: 'var(--mono)',
+          background: 'transparent',
+          color: 'var(--text)',
+          textAlign: 'right',
+        }}
+      />
+      {suffix && <span style={{ color: 'var(--text-tertiary)', fontSize: 11, marginLeft: 2 }}>{suffix}</span>}
+    </span>
   );
 }
 
-function CountryCodeInput({ value, onChange }) {
+function CcInput({ value, onChange }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center' }}>
-      <span style={{ fontSize: 14, color: 'var(--text-tertiary)', padding: '0 6px', fontFamily: 'var(--mono)' }}>+</span>
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        background: 'var(--surface)',
+        border: '1px solid var(--border-strong)',
+        borderRadius: 'var(--radius-sm)',
+        padding: '3px 8px',
+      }}
+    >
+      <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>+</span>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
-        placeholder="49"
         style={{
-          width: '100%',
-          fontSize: 14,
+          width: 34,
+          fontSize: 12,
           fontFamily: 'var(--mono)',
-          padding: '8px 10px',
-          background: 'var(--surface)',
-          border: '1px solid var(--border-strong)',
-          borderRadius: 'var(--radius-sm)',
+          background: 'transparent',
+          color: 'var(--text)',
         }}
       />
+    </span>
+  );
+}
+
+function BoxLabel({ children }) {
+  return (
+    <div
+      style={{
+        fontSize: 11,
+        color: 'var(--text-tertiary)',
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+        marginBottom: 6,
+        fontFamily: 'var(--mono)',
+      }}
+    >
+      {children}
     </div>
   );
 }
