@@ -1,6 +1,6 @@
 'use client';
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Pill, Dot, Button, Panel } from './ui';
+import React, { useState, useEffect } from 'react';
+import { Dot, Button, Panel } from './ui';
 
 const NODE_COLORS = {
   persona: { bg: 'var(--purple-soft)', fg: 'var(--purple)', bd: 'var(--purple-border)', dot: 'purple' },
@@ -12,19 +12,19 @@ const NODE_COLORS = {
 };
 
 export function KnowledgeGraph() {
-  const [graph, setGraph] = useState({ nodes: [], edges: [] });
+  const [datasetId, setDatasetId] = useState(null);
   const [error, setError] = useState(null);
   const [seeding, setSeeding] = useState(false);
   const [recallQuery, setRecallQuery] = useState('contract lock-in CTO');
   const [recallResults, setRecallResults] = useState(null);
   const [recallLoading, setRecallLoading] = useState(false);
-  const [selectedNode, setSelectedNode] = useState(null);
+  const [iframeKey, setIframeKey] = useState(0);
 
   const fetchGraph = async () => {
     try {
       const res = await fetch('/api/cognee/graph');
       const data = await res.json();
-      setGraph(data.graph ?? { nodes: [], edges: [] });
+      setDatasetId(data.datasetId ?? null);
       setError(data.error ?? null);
     } catch (e) {
       setError(e.message);
@@ -33,7 +33,7 @@ export function KnowledgeGraph() {
 
   useEffect(() => {
     fetchGraph();
-    const id = setInterval(fetchGraph, 5000);
+    const id = setInterval(fetchGraph, 8000);
     return () => clearInterval(id);
   }, []);
 
@@ -42,6 +42,7 @@ export function KnowledgeGraph() {
     try {
       await fetch('/api/cognee/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reset: false }) });
       await fetchGraph();
+      setIframeKey(k => k + 1);
     } finally {
       setSeeding(false);
     }
@@ -52,6 +53,7 @@ export function KnowledgeGraph() {
     try {
       await fetch('/api/cognee/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reset: true }) });
       await fetchGraph();
+      setIframeKey(k => k + 1);
     } finally {
       setSeeding(false);
     }
@@ -75,7 +77,7 @@ export function KnowledgeGraph() {
     }
   };
 
-  const empty = (graph.nodes?.length ?? 0) === 0;
+  const empty = !datasetId;
 
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -105,7 +107,7 @@ export function KnowledgeGraph() {
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: 16 }}>
         <Panel
           title="Live graph"
-          subtitle={`${graph.nodes?.length ?? 0} nodes · ${graph.edges?.length ?? 0} edges · polling 5s`}
+          subtitle={datasetId ? `dataset · cognee cloud` : 'no dataset yet'}
           action={
             <div style={{ display: 'flex', gap: 6 }}>
               <Button size="xs" variant="default" onClick={seed} disabled={seeding}>
@@ -117,11 +119,16 @@ export function KnowledgeGraph() {
             </div>
           }
         >
-          <div style={{ height: 480, position: 'relative', overflow: 'hidden' }}>
+          <div style={{ height: 520, position: 'relative', overflow: 'hidden', background: '#fff' }}>
             {empty ? (
               <EmptyState onSeed={seed} seeding={seeding} />
             ) : (
-              <ForceGraph graph={graph} onNodeClick={setSelectedNode} selectedId={selectedNode?.id} />
+              <iframe
+                key={iframeKey}
+                src={`/api/cognee/graph?format=html&t=${iframeKey}`}
+                title="Cognee knowledge graph"
+                style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+              />
             )}
           </div>
         </Panel>
@@ -181,51 +188,37 @@ export function KnowledgeGraph() {
                 </div>
               )}
 
-              {recallResults?.results && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflow: 'auto' }}>
-                  {recallResults.results.map((r, i) => {
-                    const type = r.metadata?.node_type ?? 'default';
-                    const c = NODE_COLORS[type] ?? NODE_COLORS.default;
-                    return (
-                      <div key={i} style={{
-                        padding: 10,
-                        background: c.bg,
-                        border: `1px solid ${c.bd}`,
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: 11,
-                        color: 'var(--text-secondary)',
-                        lineHeight: 1.5,
-                      }}>
-                        <div style={{ display: 'flex', gap: 6, marginBottom: 4, alignItems: 'center' }}>
-                          <Dot color={c.dot} size={5} />
-                          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: c.fg, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 1 }}>
-                            {type}
-                          </span>
-                          {r.score && (
-                            <span style={{ marginLeft: 'auto', fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-tertiary)' }}>
-                              {(r.score * 100).toFixed(0)}%
-                            </span>
-                          )}
-                        </div>
-                        <div>{r.text?.slice(0, 240)}{r.text?.length > 240 && '…'}</div>
+              {recallResults?.results?.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflow: 'auto' }}>
+                  {recallResults.results.map((r, i) => (
+                    <div key={i} style={{
+                      padding: 12,
+                      background: 'var(--accent-soft)',
+                      border: '1px solid var(--accent-border)',
+                      borderRadius: 'var(--radius-md)',
+                      fontSize: 12,
+                      color: 'var(--text)',
+                      lineHeight: 1.55,
+                    }}>
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                        <Dot color="accent" size={5} pulse={i === 0} />
+                        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent-text)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 1 }}>
+                          {i === 0 ? 'Top answer · GRAPH_COMPLETION' : `Hit ${i + 1}`}
+                        </span>
                       </div>
-                    );
-                  })}
+                      <div>{r.text}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {recallResults && (recallResults.results?.length ?? 0) === 0 && !recallResults.error && (
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>
+                  No hits — graph may still be cognifying. Try again in 30-60s.
                 </div>
               )}
             </div>
           </Panel>
 
-          {selectedNode && (
-            <Panel title={selectedNode.label || selectedNode.id} subtitle={selectedNode.type ?? 'node'}>
-              <div style={{ padding: 16 }}>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 }}>
-                  {selectedNode.text ?? 'No text payload.'}
-                </div>
-                <Button size="xs" variant="ghost" onClick={() => setSelectedNode(null)}>Close</Button>
-              </div>
-            </Panel>
-          )}
         </div>
       </div>
 
@@ -291,146 +284,3 @@ function Bullet({ tone, label, body }) {
   );
 }
 
-function ForceGraph({ graph, onNodeClick, selectedId }) {
-  const ref = useRef(null);
-  const [size, setSize] = useState({ w: 800, h: 480 });
-  const [positions, setPositions] = useState({});
-
-  useEffect(() => {
-    if (!ref.current) return;
-    const obs = new ResizeObserver((entries) => {
-      const r = entries[0].contentRect;
-      setSize({ w: r.width, h: r.height });
-    });
-    obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, []);
-
-  const nodes = graph.nodes ?? [];
-  const edges = graph.edges ?? [];
-
-  const initial = useMemo(() => {
-    const out = {};
-    nodes.forEach((n, i) => {
-      const angle = (i / Math.max(nodes.length, 1)) * Math.PI * 2;
-      const radius = Math.min(size.w, size.h) * 0.32;
-      out[n.id] = {
-        x: size.w / 2 + Math.cos(angle) * radius,
-        y: size.h / 2 + Math.sin(angle) * radius,
-        vx: 0,
-        vy: 0,
-      };
-    });
-    return out;
-  }, [nodes, size.w, size.h]);
-
-  useEffect(() => {
-    setPositions(initial);
-  }, [initial]);
-
-  useEffect(() => {
-    if (nodes.length === 0) return;
-    let raf;
-    const step = () => {
-      setPositions((prev) => {
-        const next = { ...prev };
-        const center = { x: size.w / 2, y: size.h / 2 };
-
-        for (const n of nodes) {
-          if (!next[n.id]) continue;
-          const p = { ...next[n.id] };
-
-          for (const m of nodes) {
-            if (m.id === n.id || !next[m.id]) continue;
-            const dx = p.x - next[m.id].x;
-            const dy = p.y - next[m.id].y;
-            const d2 = dx * dx + dy * dy + 1;
-            const f = 800 / d2;
-            p.vx += (dx / Math.sqrt(d2)) * f;
-            p.vy += (dy / Math.sqrt(d2)) * f;
-          }
-
-          p.vx += (center.x - p.x) * 0.005;
-          p.vy += (center.y - p.y) * 0.005;
-
-          p.vx *= 0.82;
-          p.vy *= 0.82;
-          p.x += p.vx * 0.02;
-          p.y += p.vy * 0.02;
-
-          p.x = Math.max(40, Math.min(size.w - 40, p.x));
-          p.y = Math.max(40, Math.min(size.h - 40, p.y));
-
-          next[n.id] = p;
-        }
-
-        for (const e of edges) {
-          const a = next[e.source];
-          const b = next[e.target];
-          if (!a || !b) continue;
-          const dx = b.x - a.x;
-          const dy = b.y - a.y;
-          const d = Math.sqrt(dx * dx + dy * dy) + 0.001;
-          const target = 120;
-          const f = (d - target) * 0.0015;
-          a.vx += (dx / d) * f;
-          a.vy += (dy / d) * f;
-          b.vx -= (dx / d) * f;
-          b.vy -= (dy / d) * f;
-        }
-
-        return next;
-      });
-      raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [nodes, edges, size.w, size.h]);
-
-  return (
-    <div ref={ref} style={{ position: 'absolute', inset: 0 }}>
-      <svg width={size.w} height={size.h} style={{ display: 'block' }}>
-        {edges.map((e, i) => {
-          const a = positions[e.source];
-          const b = positions[e.target];
-          if (!a || !b) return null;
-          return (
-            <line
-              key={i}
-              x1={a.x}
-              y1={a.y}
-              x2={b.x}
-              y2={b.y}
-              stroke="var(--border-strong)"
-              strokeWidth={1}
-              opacity={0.5}
-            />
-          );
-        })}
-        {nodes.map((n) => {
-          const p = positions[n.id];
-          if (!p) return null;
-          const c = NODE_COLORS[n.type] ?? NODE_COLORS.default;
-          const selected = selectedId === n.id;
-          const r = selected ? 12 : 8;
-          return (
-            <g key={n.id} transform={`translate(${p.x},${p.y})`} onClick={() => onNodeClick(n)} style={{ cursor: 'pointer' }}>
-              <circle r={r + 4} fill={c.bg} opacity={0.6} />
-              <circle r={r} fill={c.fg} stroke="white" strokeWidth={2} />
-              <text
-                y={r + 14}
-                textAnchor="middle"
-                fontSize={10}
-                fontFamily="var(--mono)"
-                fill="var(--text-secondary)"
-                style={{ pointerEvents: 'none', userSelect: 'none' }}
-              >
-                {(n.label ?? n.id ?? '').slice(0, 22)}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}

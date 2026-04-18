@@ -7,6 +7,7 @@ import { Dashboard } from './Dashboard';
 import { LiveCall } from './LiveCall';
 import { AgentTrace } from './AgentTrace';
 import { KnowledgeGraph } from './KnowledgeGraph';
+import { LiveActivityIndicator } from './LiveActivity';
 import { Wordmark, Dot, Button, Kbd, IconSearch } from './ui';
 
 const STAGE = { INTRO: 'intro', ONBOARDING: 'onboarding', DEPLOYING: 'deploying', APP: 'app' };
@@ -188,6 +189,7 @@ function TopBar({ view, setView, agentsPaused, onTogglePause, signalCount, compa
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <LiveActivityIndicator />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
           <Dot color={agentsPaused ? 'warning' : 'success'} pulse={!agentsPaused} />
           <span style={{ fontWeight: 500 }}>{agentsPaused ? '7 paused' : '7 live'}</span>
