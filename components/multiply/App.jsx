@@ -19,6 +19,7 @@ import { AgentOrchestra } from './AgentOrchestra';
 import { ParticleField } from './ParticleField';
 import { PitchModeOverlay, setPitchMode, getPitchMode } from './PitchMode';
 import { ResearchAgentPanel } from './ResearchAgentPanel';
+import { ResearchView } from './ResearchView';
 
 const STAGE = { INTRO: 'intro', ONBOARDING: 'onboarding', DEPLOYING: 'deploying', APP: 'app' };
 
@@ -143,6 +144,7 @@ export default function App() {
             />
           )}
           {view === 'trace' && <AgentTrace />}
+          {view === 'research' && <ResearchView showToast={showToast} />}
           {view === 'graph' && <KnowledgeGraph />}
           {view === 'orchestra' && <AgentOrchestra />}
           {view === 'agent' && <AgentDetail agentName={selectedAgent} />}
@@ -168,6 +170,7 @@ export default function App() {
             case 'view-graph':    return setView('graph');
             case 'view-orchestra':return setView('orchestra');
             case 'view-trace':    return setView('trace');
+            case 'view-research': return setView('research');
             case 'view-dashboard':return setView('dashboard');
             case 'replay-tour':   return replayTour();
             case 'pitch-mode':
@@ -242,6 +245,7 @@ function TopBar({ view, setView, agentsPaused, onTogglePause, onOpenResearch }) 
         <TabButton active={view === 'orchestra'} onClick={() => setView('orchestra')}>Orchestra</TabButton>
         <TabButton active={view === 'graph'} onClick={() => setView('graph')}>Knowledge</TabButton>
         <TabButton active={view === 'trace'} onClick={() => setView('trace')}>Trace</TabButton>
+        <TabButton active={view === 'research'} onClick={() => setView('research')}>Research</TabButton>
       </div>
 
       <div style={{ flex: 1 }} />
