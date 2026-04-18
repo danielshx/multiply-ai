@@ -88,6 +88,34 @@ export default function UsOutreachDashboard() {
     };
   }, []);
 
+  // Poll /api/us-outreach/sync for any non-terminal call. Pulls run status,
+  // session_id, and any new messages from HR — covers the case where HR's
+  // outgoing webhook isn't firing live message events.
+  useEffect(() => {
+    const activeIds = calls
+      .filter((c) => c.status === 'triggered' || c.status === 'live')
+      .map((c) => c.id);
+    if (activeIds.length === 0) return;
+    let cancelled = false;
+    const tick = async () => {
+      await Promise.all(
+        activeIds.map((id) =>
+          fetch(`/api/us-outreach/sync/${id}`)
+            .then((r) => r.json())
+            .catch(() => null),
+        ),
+      );
+    };
+    tick();
+    const t = setInterval(() => {
+      if (!cancelled) tick();
+    }, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [calls.map((c) => `${c.id}:${c.status}`).join(',')]);
+
   const stats = useMemo(() => {
     const placed = calls.length;
     const connectedCalls = calls.filter((c) =>

@@ -45,6 +45,19 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as HrEvent & DispositionBody;
   const supabase = getServerSupabase();
 
+  // Audit-log every incoming payload so we can debug HR-side delivery without
+  // Vercel logs. Survives forever; query: select * from hr_events order by ts desc;
+  await supabase
+    .from("hr_events")
+    .insert({
+      type: `us_outreach:${body.type ?? body.event ?? "manual_disposition"}`,
+      payload: body as unknown as Record<string, unknown>,
+    })
+    .then(
+      () => null,
+      () => null,
+    );
+
   // --- HR auto-event path ---
   const eventType = body.type ?? body.event;
   if (eventType && body.data) {
