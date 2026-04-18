@@ -11,6 +11,7 @@ import { LiveActivityIndicator } from './LiveActivity';
 import { Wordmark, Dot, Button, Kbd, IconSearch } from './ui';
 import { AgentDetail } from './AgentDetail';
 import { PipelineView } from './PipelineView';
+import { PipelineAgentView } from './PipelineAgentView';
 
 const STAGE = { INTRO: 'intro', ONBOARDING: 'onboarding', DEPLOYING: 'deploying', APP: 'app' };
 
@@ -125,7 +126,8 @@ export default function App() {
           {view === 'trace' && <AgentTrace />}
           {view === 'graph' && <KnowledgeGraph />}
           {view === 'agent' && <AgentDetail agentName={selectedAgent} />}
-          {view.startsWith('pipeline_') && <PipelineView stage={view.replace('pipeline_', '')} />}
+          {view.startsWith('pipeline_') && !view.startsWith('pipeline_agents_') && <PipelineView stage={view.replace('pipeline_', '')} />}
+          {view.startsWith('agents_pipeline_') && <PipelineAgentView stage={view.replace('agents_pipeline_', '')} />}
         </main>
       </div>
 

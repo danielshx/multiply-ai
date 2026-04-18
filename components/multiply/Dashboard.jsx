@@ -383,6 +383,14 @@ const PIPELINE_STATS = [
 
 const TOTAL_DETECTED = 82;
 
+const STAGE_AGENTS = {
+  Detected:  [{ name: 'Signal Hunter', count: 3 }, { name: 'Prospector', count: 2 }],
+  Engaged:   [{ name: 'Personaliser', count: 4 }, { name: 'Qualifier', count: 2 }],
+  Qualified: [{ name: 'Qualifier', count: 3 }, { name: 'Negotiator', count: 1 }],
+  Booked:    [{ name: 'Closer', count: 2 }],
+  Closed:    [{ name: 'Closer', count: 1 }],
+};
+
 function PipelinePanel({ setView }) {
   return (
     <Panel
@@ -479,10 +487,48 @@ function PipelineStageCard({ stage, setView }) {
         }} />
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 10 }}>
         <StatLine label="Avg score" value={stage.avgScore} mono />
         <StatLine label="Moved in (1h)" value={`+${stage.movedIn}`} mono />
         <StatLine label="Avg time" value={`${stage.avgDays}d`} mono />
+      </div>
+
+      <AgentBox agents={STAGE_AGENTS[stage.key] || []} onClick={(e) => { e.stopPropagation(); setView('agents_pipeline_' + stage.key); }} />
+    </div>
+  );
+}
+
+function AgentBox({ agents, onClick }) {
+  const [hover, setHover] = React.useState(false);
+  const total = agents.reduce((s, a) => s + a.count, 0);
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        marginTop: 2,
+        padding: '7px 9px',
+        borderRadius: 'var(--radius-sm)',
+        border: `1px solid ${hover ? 'var(--border-strong)' : 'var(--border)'}`,
+        background: hover ? 'var(--surface)' : 'var(--bg)',
+        cursor: 'pointer',
+        transition: 'all 120ms ease',
+      }}
+    >
+      <div style={{ fontSize: 10, color: 'var(--text-quaternary)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.9, marginBottom: 5 }}>
+        {total} agent{total !== 1 ? 's' : ''} active
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {agents.map(a => (
+          <div key={a.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Dot color="success" pulse size={4} />
+              <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{a.name}</span>
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--text-quaternary)', fontFamily: 'var(--mono)' }}>×{a.count}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
