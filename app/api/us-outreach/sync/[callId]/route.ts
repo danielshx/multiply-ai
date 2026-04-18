@@ -73,6 +73,29 @@ export async function GET(
     return NextResponse.json({ ok: false, reason: "no hr_run_id yet" });
   }
 
+  // Fallback: if DB doesn't have session_id yet, try to recover it from the
+  // audit log of session.status_changed events (which always carry session_id).
+  if (!call.hr_session_id) {
+    const { data: events } = await supabase
+      .from("hr_events")
+      .select("payload")
+      .like("type", "us_outreach:session.status_changed")
+      .order("ts", { ascending: false })
+      .limit(50);
+    for (const ev of events ?? []) {
+      const d = (ev.payload as { data?: { run_id?: string; session_id?: string } } | undefined)?.data;
+      if (!d) continue;
+      if (d.run_id === call.hr_run_id && d.session_id) {
+        call.hr_session_id = d.session_id;
+        await supabase
+          .from("us_outreach_calls")
+          .update({ hr_session_id: d.session_id, updated_at: new Date().toISOString() })
+          .eq("id", callId);
+        break;
+      }
+    }
+  }
+
   // 1. Run details → session_id
   let run: RunDetails;
   try {

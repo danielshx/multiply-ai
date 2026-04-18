@@ -36,7 +36,7 @@ export async function GET() {
     .limit(20);
 
   let latestRunDump: unknown = null;
-  let latestMessagesDump: unknown = null;
+  const messagesProbes: Array<Record<string, unknown>> = [];
   const latest = calls?.[0];
   if (latest?.hr_run_id && key) {
     try {
@@ -51,20 +51,33 @@ export async function GET() {
     } catch (e) {
       latestRunDump = { error: (e as Error).message };
     }
+  }
 
-    if (latest.hr_session_id) {
+  // Probe every session_id we've seen in events (ignoring whether the DB row
+  // has it set) so we can verify the HR messages endpoint actually returns
+  // data for this org/workflow.
+  const seenSessions = new Set<string>();
+  for (const ev of events ?? []) {
+    const sid = (
+      ev.payload as { data?: { session_id?: string } } | undefined
+    )?.data?.session_id;
+    if (sid) seenSessions.add(sid);
+  }
+  if (key) {
+    for (const sid of Array.from(seenSessions).slice(0, 3)) {
       try {
         const msgRes = await fetch(
-          `${HR_BASE}/sessions/${latest.hr_session_id}/messages?page=1&page_size=50&sort=asc`,
+          `${HR_BASE}/sessions/${sid}/messages?page=1&page_size=50&sort=asc`,
           { headers: { Authorization: `Bearer ${key}` } },
         );
-        latestMessagesDump = {
+        messagesProbes.push({
+          session_id: sid,
           status: msgRes.status,
           ok: msgRes.ok,
           body: await msgRes.text().then((t) => t.slice(0, 2500)),
-        };
+        });
       } catch (e) {
-        latestMessagesDump = { error: (e as Error).message };
+        messagesProbes.push({ session_id: sid, error: (e as Error).message });
       }
     }
   }
@@ -74,7 +87,7 @@ export async function GET() {
     messages,
     events,
     latest_run_hr_response: latestRunDump,
-    latest_messages_hr_response: latestMessagesDump,
+    messages_probes: messagesProbes,
     hr_us_workflow_id: process.env.HR_US_WORKFLOW_ID ?? null,
     app_url: process.env.MULTIPLY_APP_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? null,
     hr_api_key_set: !!key,
