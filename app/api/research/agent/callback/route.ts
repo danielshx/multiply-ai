@@ -81,21 +81,27 @@ function pickInt(c: Candidate, ...keys: string[]): number | null {
   return n === null ? null : Math.trunc(n);
 }
 
-function normalize(c: Candidate, topic: string, agent: string) {
+function normalize(
+  c: Candidate,
+  topic: string,
+  agent: string,
+  searchQuery: string | null,
+  totalFound: number | null,
+) {
   return {
     agent_name: agent || null,
     topic: topic || null,
+    search_query: searchQuery,
+    total_found: totalFound,
     place_name: pickString(c, "place_name", "name", "title"),
     phone_number: pickString(c, "phone_number", "phone", "international_phone_number"),
     company_type: pickString(c, "company_type", "category", "type", "types"),
     address: pickString(c, "address", "formatted_address", "vicinity"),
     website: pickString(c, "website", "url"),
-    email: pickString(c, "email"),
     rating: pickNumber(c, "rating"),
     review_count: pickInt(c, "review_count", "reviews_count", "user_ratings_total", "reviews"),
     hours: pickString(c, "hours", "opening_hours"),
     description: pickString(c, "description", "snippet", "about"),
-    sales_notes: pickString(c, "sales_notes", "notes"),
     google_place_id: pickString(c, "google_place_id", "place_id", "google_maps_url"),
     raw: c && typeof c === "object" ? c : { value: c },
   };
@@ -106,6 +112,18 @@ export async function POST(req: Request) {
 
   const topic = typeof body.topic === "string" ? body.topic : "";
   const agent = typeof body.agent === "string" ? body.agent : "";
+  const searchQuery =
+    typeof body.search_query === "string" && body.search_query.trim()
+      ? body.search_query
+      : null;
+  const totalFoundRaw = body.total_found;
+  const totalFoundNum =
+    typeof totalFoundRaw === "number"
+      ? totalFoundRaw
+      : typeof totalFoundRaw === "string"
+        ? Number(totalFoundRaw)
+        : NaN;
+  const totalFound = Number.isFinite(totalFoundNum) ? Math.trunc(totalFoundNum) : null;
 
   const candidates = parseCandidates(body);
 
@@ -113,6 +131,8 @@ export async function POST(req: Request) {
     keys: Object.keys(body),
     topic,
     agent,
+    search_query: searchQuery,
+    total_found: totalFound,
     candidate_count: candidates.length,
   });
 
@@ -123,17 +143,17 @@ export async function POST(req: Request) {
     const debugRow = {
       agent_name: agent || null,
       topic: topic || null,
+      search_query: searchQuery,
+      total_found: totalFound,
       place_name: null,
       phone_number: null,
       company_type: null,
       address: null,
       website: null,
-      email: null,
       rating: null,
       review_count: null,
       hours: null,
-      description: null,
-      sales_notes: "debug: no candidates parsed from payload",
+      description: "debug: no candidates parsed from payload",
       google_place_id: null,
       raw: body,
     };
@@ -149,7 +169,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const rows = candidates.map((c) => normalize(c, topic, agent));
+  const rows = candidates.map((c) => normalize(c, topic, agent, searchQuery, totalFound));
 
   const { error } = await supabase.from("googlemaps_candidates").insert(rows);
 
