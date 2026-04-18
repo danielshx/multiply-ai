@@ -78,45 +78,84 @@ export async function POST(req: Request) {
   const agent = pickString(body, "agent", "agent_name");
   const placeId = pickString(body, "google_place_id", "place_id");
   const placeName = pickString(body, "place_name", "name");
+  const website = pickString(body, "website", "url");
   const searchQuery = pickString(body, "search_query");
   const websiteSummary = pickString(body, "website_summary", "summary");
   const enrichmentError = pickString(body, "enrichment_error", "error");
 
   const contacts = parseContacts(body.contacts ?? body.contacts_json);
 
-  if (!agent || (!placeId && !placeName)) {
+  console.log("[enrich-callback] received", {
+    keys: Object.keys(body),
+    agent,
+    placeId,
+    placeName,
+    website,
+    searchQuery,
+    contacts_count: contacts.length,
+    has_summary: !!websiteSummary,
+  });
+
+  // Need at least one identifier to find the row.
+  if (!placeId && !placeName && !website) {
     return NextResponse.json({
       ok: false,
-      reason: "agent and google_place_id (or place_name) are required",
+      reason: "need at least one of google_place_id, place_name, or website",
       received_keys: Object.keys(body),
     });
   }
 
   const supabase = getServerSupabase();
 
-  let query = supabase
-    .from("googlemaps_candidates")
-    .select("id")
-    .eq("agent_name", agent)
-    .order("created_at", { ascending: false })
-    .limit(1);
+  const buildQuery = () => {
+    let q = supabase
+      .from("googlemaps_candidates")
+      .select("id")
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (agent) q = q.eq("agent_name", agent);
+    if (searchQuery) q = q.eq("search_query", searchQuery);
+    return q;
+  };
 
-  if (placeId) {
-    query = query.eq("google_place_id", placeId);
-  } else if (placeName) {
-    query = query.eq("place_name", placeName);
+  // Try by place_id → place_name → website. Each step first with agent+search_query
+  // filters (if provided), then falls back to global match by that identifier.
+  const attempts: { col: string; val: string }[] = [];
+  if (placeId) attempts.push({ col: "google_place_id", val: placeId });
+  if (placeName) attempts.push({ col: "place_name", val: placeName });
+  if (website) attempts.push({ col: "website", val: website });
+
+  let match: { id: string } | null = null;
+  let findErr: unknown = null;
+
+  for (const { col, val } of attempts) {
+    const scoped = await buildQuery().eq(col, val).maybeSingle();
+    if (scoped.data) {
+      match = scoped.data;
+      break;
+    }
+    if (scoped.error) findErr = scoped.error;
+    // Fall back to matching just by this identifier, no agent/search_query.
+    const broad = await supabase
+      .from("googlemaps_candidates")
+      .select("id")
+      .eq(col, val)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (broad.data) {
+      match = broad.data;
+      break;
+    }
+    if (broad.error) findErr = broad.error;
   }
-  if (searchQuery) {
-    query = query.eq("search_query", searchQuery);
-  }
 
-  const { data: match, error: findErr } = await query.maybeSingle();
-
-  if (findErr || !match) {
+  if (!match) {
     console.error("[enrich-callback] no matching row", {
       agent,
       placeId,
       placeName,
+      website,
       searchQuery,
       findErr,
     });
@@ -126,6 +165,7 @@ export async function POST(req: Request) {
       agent,
       google_place_id: placeId,
       place_name: placeName,
+      website,
     });
   }
 
