@@ -214,6 +214,14 @@ export const cognee = {
   },
 
   /**
+   * Count the data items in a dataset. Live from Cognee.
+   */
+  async countDataset(datasetId: string): Promise<number> {
+    const res = await request<unknown>(`/api/v1/datasets/${datasetId}/data`, { method: "GET" });
+    return Array.isArray(res) ? res.length : 0;
+  },
+
+  /**
    * Cognee Cloud's visualize endpoint returns an interactive HTML page.
    * We return the URL with the API key as a query param so it's iframable.
    * NOTE: API key in URL is fine for a demo iframe; for production use a

@@ -4,6 +4,8 @@ import { Dot, Pill, Button } from './ui';
 
 export function CogneeIntelligence({ onResultsHighlight }) {
   const [stats, setStats] = useState(null);
+  const [prevLive, setPrevLive] = useState(null);
+  const [growthPulse, setGrowthPulse] = useState(false);
   const [askQuery, setAskQuery] = useState('');
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState(null);
@@ -13,11 +15,24 @@ export function CogneeIntelligence({ onResultsHighlight }) {
     try {
       const res = await fetch('/api/cognee/stats', { cache: 'no-store' });
       const d = await res.json();
-      setStats(d);
+      setStats((prev) => {
+        const prevLiveVal = prev?.liveTotal ?? null;
+        const nextLiveVal = d?.liveTotal ?? null;
+        if (prevLiveVal !== null && nextLiveVal !== null && nextLiveVal > prevLiveVal) {
+          setPrevLive(prevLiveVal);
+          setGrowthPulse(true);
+          setTimeout(() => setGrowthPulse(false), 2400);
+        }
+        return d;
+      });
     } catch {}
   };
 
-  useEffect(() => { loadStats(); }, []);
+  useEffect(() => {
+    loadStats();
+    const id = setInterval(loadStats, 10_000);
+    return () => clearInterval(id);
+  }, []);
 
   const ask = async (q) => {
     const query = q ?? askQuery;
@@ -82,15 +97,37 @@ export function CogneeIntelligence({ onResultsHighlight }) {
     }
   };
 
-  const presetQueries = [
-    'Sarah Chen Northwind contract lock-in CTO',
-    'GDPR data residency FinTech objection',
-    'Q1 frozen budget how to close',
-    'how to approach HealthTech compliance officer',
-    'post-Series-B CTO best opener',
-    'vendor fatigue test-fatigued buyer',
-    'procurement 90 days workaround',
-    'multi-call journey examples',
+  const presetTour = [
+    {
+      act: '① Who is Sarah Chen?',
+      hint: 'persona-specific dossier',
+      q: 'Sarah Chen CTO Northwind Robotics persona dossier prior calls',
+    },
+    {
+      act: '② She raises contract lock-in',
+      hint: 'objection → rebuttal recall',
+      q: 'post-raise CTO contract lock-in rebuttal best pattern win rate',
+    },
+    {
+      act: '③ What to do after today\'s call',
+      hint: 'journey + next best action',
+      q: 'multi-touch journey after Series-B CTO call next best action expansion',
+    },
+    {
+      act: 'Why Multiply vs Gong?',
+      hint: 'product + competitive',
+      q: 'Multiply vs Gong competitive positioning reference customers',
+    },
+    {
+      act: 'GDPR / DORA FinTech',
+      hint: 'regulated EU',
+      q: 'GDPR data residency FinTech DORA regulated EU rebuttal',
+    },
+    {
+      act: 'Q1 frozen budget',
+      hint: 'temporal pattern',
+      q: 'Q1 frozen budget how to close budget-flex-pilot',
+    },
   ];
 
   const dist = stats?.distribution ?? {};
@@ -154,7 +191,13 @@ export function CogneeIntelligence({ onResultsHighlight }) {
           <StatBadge label="Industries"   value={dist.industry_playbooks ?? 0} color="info" />
           <StatBadge label="Temporal"     value={dist.temporal_patterns ?? 0}  color="warning" />
           <StatBadge label="Journeys"     value={dist.journeys ?? 0}           color="accent" />
-          <StatBadge label="Total"        value={stats.total ?? 0}             color="neutral" emphasis />
+          <StatBadge
+            label={growthPulse ? `Live +${(stats.liveTotal ?? 0) - (prevLive ?? 0)}` : 'Live in cognee'}
+            value={stats.liveTotal ?? stats.total ?? 0}
+            color="neutral"
+            emphasis
+            pulse={growthPulse}
+          />
         </div>
       )}
 
@@ -193,23 +236,29 @@ export function CogneeIntelligence({ onResultsHighlight }) {
           </Button>
         </div>
 
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
-          {presetQueries.map((q) => (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, marginBottom: 8 }}>
+          {presetTour.map((preset) => (
             <button
-              key={q}
-              onClick={() => { setAskQuery(q); ask(q); }}
+              key={preset.q}
+              onClick={() => { setAskQuery(preset.q); ask(preset.q); }}
               style={{
-                fontSize: 10,
-                padding: '3px 8px',
+                textAlign: 'left',
+                padding: '8px 10px',
                 background: 'var(--bg-subtle)',
                 border: '1px solid var(--border)',
-                borderRadius: 999,
-                color: 'var(--text-secondary)',
-                fontFamily: 'var(--mono)',
+                borderRadius: 'var(--radius-sm)',
                 cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
               }}
             >
-              {q}
+              <span style={{ fontSize: 11, color: 'var(--text)', fontWeight: 500 }}>
+                {preset.act}
+              </span>
+              <span style={{ fontSize: 9, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                {preset.hint}
+              </span>
             </button>
           ))}
         </div>
@@ -345,7 +394,7 @@ function ChunkHit({ hit, index }) {
   );
 }
 
-function StatBadge({ label, value, color, emphasis }) {
+function StatBadge({ label, value, color, emphasis, pulse }) {
   const bg = {
     success: 'var(--success-soft)',
     purple: 'var(--purple-soft)',
@@ -364,14 +413,20 @@ function StatBadge({ label, value, color, emphasis }) {
   }[color] ?? 'var(--text)';
 
   return (
-    <div style={{
-      padding: emphasis ? '8px 10px' : '6px 8px',
-      background: emphasis ? 'var(--text)' : bg,
-      border: `1px solid ${emphasis ? 'var(--text)' : 'transparent'}`,
-      color: emphasis ? '#fff' : fg,
-      borderRadius: 'var(--radius-sm)',
-      textAlign: 'center',
-    }}>
+    <div
+      style={{
+        padding: emphasis ? '8px 10px' : '6px 8px',
+        background: emphasis ? 'var(--text)' : bg,
+        border: `1px solid ${pulse ? 'var(--accent)' : emphasis ? 'var(--text)' : 'transparent'}`,
+        color: emphasis ? '#fff' : fg,
+        borderRadius: 'var(--radius-sm)',
+        textAlign: 'center',
+        position: 'relative',
+        transition: 'transform 0.24s ease, box-shadow 0.24s ease',
+        transform: pulse ? 'scale(1.05)' : 'scale(1)',
+        boxShadow: pulse ? '0 0 0 4px var(--accent-soft), 0 0 22px var(--accent)' : 'none',
+      }}
+    >
       <div className="serif" style={{ fontSize: 20, letterSpacing: -0.5, fontWeight: 400, lineHeight: 1, marginBottom: 2 }}>
         {value}
       </div>
