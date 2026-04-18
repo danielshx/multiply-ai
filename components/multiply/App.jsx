@@ -10,6 +10,7 @@ import { KnowledgeGraph } from './KnowledgeGraph';
 import { LiveActivityIndicator } from './LiveActivity';
 import { Wordmark, Dot, Button, Kbd, IconSearch } from './ui';
 import { AgentDetail } from './AgentDetail';
+import { PipelineView } from './PipelineView';
 
 const STAGE = { INTRO: 'intro', ONBOARDING: 'onboarding', DEPLOYING: 'deploying', APP: 'app' };
 
@@ -124,6 +125,7 @@ export default function App() {
           {view === 'trace' && <AgentTrace />}
           {view === 'graph' && <KnowledgeGraph />}
           {view === 'agent' && <AgentDetail agentName={selectedAgent} />}
+          {view.startsWith('pipeline_') && <PipelineView stage={view.replace('pipeline_', '')} />}
         </main>
       </div>
 
@@ -232,17 +234,19 @@ function Sidebar({ agentsPaused, resetDemo, view, setView, selectedAgent, setSel
     setView('agent');
   };
 
+  const onPipelineClick = (label) => setView('pipeline_' + label);
+
   const items = [
     { section: 'Intake', rows: [
       { label: 'Live signals', count: 2847 },
       { label: 'Hot leads', count: 23 },
     ]},
     { section: 'Pipeline', rows: [
-      { label: 'Detected', count: 82 },
-      { label: 'Engaged', count: 54 },
-      { label: 'Qualified', count: 31 },
-      { label: 'Booked', count: 17 },
-      { label: 'Closed', count: 8 },
+      { label: 'Detected', count: 82, onClick: onPipelineClick, active: view === 'pipeline_Detected' },
+      { label: 'Engaged', count: 54, onClick: onPipelineClick, active: view === 'pipeline_Engaged' },
+      { label: 'Qualified', count: 31, onClick: onPipelineClick, active: view === 'pipeline_Qualified' },
+      { label: 'Booked', count: 17, onClick: onPipelineClick, active: view === 'pipeline_Booked' },
+      { label: 'Closed', count: 8, onClick: onPipelineClick, active: view === 'pipeline_Closed' },
     ]},
     { section: 'Agents', rows: [
       { label: 'Signal Hunter', status: agentsPaused ? 'paused' : 'live', onClick: onAgentClick, active: view === 'agent' && selectedAgent === 'Signal Hunter' },

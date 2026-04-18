@@ -55,16 +55,13 @@ export function Dashboard({ openCall, showToast, agentsPaused, signalCount, setV
     <>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 1600, margin: '0 auto' }}>
         <Header companyData={companyData} />
+        <PipelinePanel setView={setView} />
         <HeroStrip openCall={openCall} />
         <KpiRow signalCount={signalCount} expanded={kpiExpanded} setExpanded={setKpiExpanded} />
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)', gap: 16 }}>
           <SignalFeed signals={signals} onSignalClick={setSignalDrawer} openCall={openCall} />
           <AgentLoopPanel openCall={openCall} setView={setView} />
         </div>
-        <PipelinePanel openCall={openCall} onCardClick={(card) => {
-          if (card.active) openCall();
-          else setLeadDrawer(card);
-        }} />
       </div>
 
       <SignalDrawer signal={signalDrawer} onClose={() => setSignalDrawer(null)} openCall={openCall} showToast={showToast} />
@@ -347,88 +344,183 @@ function AgentStep({ step, isLast, onLiveClick }) {
   );
 }
 
-function PipelinePanel({ onCardClick }) {
-  const cols = [
-    { key: 'detected', title: 'Detected', count: 82 },
-    { key: 'engaged', title: 'Engaged', count: 54 },
-    { key: 'qualified', title: 'Qualified', count: 31 },
-    { key: 'booked', title: 'Booked', count: 17 },
-    { key: 'closed', title: 'Closed', count: 8 },
-  ];
+const PIPELINE_STATS = [
+  {
+    key: 'Detected',
+    count: 82,
+    convLabel: 'entry',
+    conv: null,
+    avgScore: 61,
+    movedIn: 14,
+    avgDays: 0.4,
+    accentColor: 'var(--info)',
+    accentSoft: 'var(--info-soft)',
+    accentBorder: 'var(--info-border)',
+  },
+  {
+    key: 'Engaged',
+    count: 54,
+    conv: 66,
+    convLabel: 'from Detected',
+    avgScore: 72,
+    movedIn: 8,
+    avgDays: 1.2,
+    accentColor: 'var(--accent)',
+    accentSoft: 'var(--accent-soft)',
+    accentBorder: 'var(--accent-border)',
+  },
+  {
+    key: 'Qualified',
+    count: 31,
+    conv: 57,
+    convLabel: 'from Engaged',
+    avgScore: 84,
+    movedIn: 5,
+    avgDays: 2.8,
+    accentColor: 'var(--warning)',
+    accentSoft: 'var(--warning-soft)',
+    accentBorder: 'var(--warning-border)',
+  },
+  {
+    key: 'Booked',
+    count: 17,
+    conv: 55,
+    convLabel: 'from Qualified',
+    avgScore: 89,
+    movedIn: 3,
+    avgDays: 1.1,
+    accentColor: 'var(--success)',
+    accentSoft: 'var(--success-soft)',
+    accentBorder: 'var(--success-border)',
+  },
+  {
+    key: 'Closed',
+    count: 8,
+    conv: 47,
+    convLabel: 'from Booked',
+    avgScore: 94,
+    movedIn: 2,
+    avgDays: 4.3,
+    accentColor: 'var(--success)',
+    accentSoft: 'var(--success-soft)',
+    accentBorder: 'var(--success-border)',
+  },
+];
+
+const TOTAL_DETECTED = 82;
+
+function PipelinePanel({ setView }) {
   return (
     <Panel
       title="Pipeline"
-      subtitle="agents move cards in real time"
+      subtitle="agents move contacts in real time"
       action={
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 1 }}>
-          <span style={{ width: 3, height: 10, background: 'var(--accent)', borderRadius: 1 }} />
-          moved by AI
+          <Dot color="accent" pulse size={5} />
+          live
         </div>
       }
     >
-      <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-        {cols.map(col => (
-          <div key={col.key} style={{
-            background: 'var(--bg-subtle)',
-            borderRadius: 'var(--radius-md)',
-            padding: 12,
-            minHeight: 200,
-          }}>
-            <div style={{
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-              marginBottom: 12, paddingBottom: 10,
-              borderBottom: '1px solid var(--border-subtle)',
-            }}>
-              <span style={{ fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--text-secondary)', fontFamily: 'var(--mono)' }}>
-                {col.title}
-              </span>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>{col.count}</span>
-            </div>
-            {PIPELINE[col.key].map((card, i) => (
-              <PipelineCard key={i} card={card} onClick={() => onCardClick(card)} />
-            ))}
-          </div>
-        ))}
+      <div style={{ padding: '12px 16px 16px' }}>
+        {/* Funnel bar */}
+        <div style={{ display: 'flex', gap: 3, marginBottom: 16, height: 6, borderRadius: 4, overflow: 'hidden' }}>
+          {PIPELINE_STATS.map((s) => (
+            <div
+              key={s.key}
+              style={{
+                flex: s.count,
+                background: s.accentColor,
+                opacity: 0.7,
+                transition: 'flex 400ms ease',
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Stage columns */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+          {PIPELINE_STATS.map((s) => (
+            <PipelineStageCard key={s.key} stage={s} setView={setView} />
+          ))}
+        </div>
       </div>
     </Panel>
   );
 }
 
-function PipelineCard({ card, onClick }) {
+function PipelineStageCard({ stage, setView }) {
   const [hover, setHover] = useState(false);
-  const scoreColor = card.score >= 90 ? 'var(--success)' : card.score >= 80 ? 'var(--warning)' : 'var(--text-secondary)';
+  const fillPct = Math.round((stage.count / TOTAL_DETECTED) * 100);
+
   return (
     <div
-      onClick={onClick}
+      onClick={() => setView('pipeline_' + stage.key)}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        background: 'var(--surface)',
-        border: `1px solid ${card.active ? 'var(--accent)' : hover ? 'var(--border-strong)' : 'var(--border)'}`,
-        borderLeft: card.moved ? '3px solid var(--accent)' : `1px solid ${card.active ? 'var(--accent)' : hover ? 'var(--border-strong)' : 'var(--border)'}`,
-        borderRadius: 'var(--radius-sm)',
-        padding: '9px 11px',
-        marginBottom: 8,
+        background: hover ? stage.accentSoft : 'var(--bg-subtle)',
+        border: `1px solid ${hover ? stage.accentBorder : 'var(--border)'}`,
+        borderRadius: 'var(--radius-md)',
+        padding: '14px 14px 12px',
         cursor: 'pointer',
-        transition: 'all 120ms ease',
-        position: 'relative',
-        boxShadow: hover ? 'var(--shadow-xs)' : 'none',
+        transition: 'all 140ms ease',
       }}
     >
-      {card.active && (
-        <div style={{
-          position: 'absolute', top: 8, right: 8,
-          width: 6, height: 6, borderRadius: '50%', background: 'var(--danger)',
-          animation: 'pulse 1.2s ease-in-out infinite',
-        }} />
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{
+          fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+          letterSpacing: 1.1, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)',
+        }}>
+          {stage.key}
+        </span>
+        {stage.conv !== null && (
+          <span style={{ fontSize: 10, color: 'var(--text-quaternary)', fontFamily: 'var(--mono)' }}>
+            {stage.conv}%
+          </span>
+        )}
+      </div>
+
+      <div className="serif" style={{ fontSize: 36, fontWeight: 400, letterSpacing: -1.5, color: 'var(--text)', lineHeight: 1, marginBottom: 6 }}>
+        {stage.count}
+      </div>
+
+      {stage.conv !== null && (
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10 }}>
+          {stage.conv}% {stage.convLabel}
+        </div>
       )}
-      <div style={{ fontSize: 12, fontWeight: 500, letterSpacing: -0.1, marginBottom: 4, paddingRight: card.active ? 14 : 0 }}>
-        {card.company}
+      {stage.conv === null && (
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginBottom: 10 }}>
+          pipeline entry point
+        </div>
+      )}
+
+      {/* Mini progress bar */}
+      <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, marginBottom: 12 }}>
+        <div style={{
+          height: '100%', width: `${fillPct}%`,
+          background: stage.accentColor,
+          borderRadius: 2,
+          opacity: 0.8,
+        }} />
       </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontFamily: 'var(--mono)' }}>
-        <span style={{ color: scoreColor, fontWeight: 500 }}>{card.score}</span>
-        <span style={{ color: 'var(--text-tertiary)' }}>{card.time}</span>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        <StatLine label="Avg score" value={stage.avgScore} mono />
+        <StatLine label="Moved in (1h)" value={`+${stage.movedIn}`} mono />
+        <StatLine label="Avg time" value={`${stage.avgDays}d`} mono />
       </div>
+    </div>
+  );
+}
+
+function StatLine({ label, value, mono }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{label}</span>
+      <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: mono ? 'var(--mono)' : undefined, fontWeight: 500 }}>
+        {value}
+      </span>
     </div>
   );
 }
