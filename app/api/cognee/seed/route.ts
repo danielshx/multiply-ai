@@ -105,18 +105,19 @@ export async function POST(req: Request) {
   try {
     if (reset) await cognee.forget(dataset).catch(() => null);
 
-    const results = [];
     for (const item of DEMO_LEARNINGS) {
-      const r = await cognee.remember({ text: item.text, dataset, metadata: item.metadata });
-      results.push(r);
+      await cognee.remember({ text: item.text, dataset, metadata: item.metadata });
     }
-    await cognee.cognify(dataset).catch(() => null);
+    await cognee.cognify(dataset, true).catch((e) => {
+      console.warn("cognify warning:", (e as Error).message);
+    });
 
     return NextResponse.json({
       ok: true,
       ingested: DEMO_LEARNINGS.length,
       dataset,
       reset,
+      next: "Cognify is running in background. Recall + graph available in ~30-60s.",
     });
   } catch (err) {
     return NextResponse.json(

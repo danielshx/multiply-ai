@@ -59,7 +59,7 @@ export async function POST(req: Request) {
     .trim();
 
   try {
-    const result = await cognee.remember({
+    await cognee.remember({
       text,
       dataset: "multiply",
       metadata: {
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json({ ok: true, node_id: result.node_id ?? null });
+    return NextResponse.json({ ok: true });
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: (err as Error).message },

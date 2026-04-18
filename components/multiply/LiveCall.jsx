@@ -16,8 +16,34 @@ export function LiveCall({ onClose, takeover, onTakeover, onResumeAgent, showToa
   const [transcriptIdx, setTranscriptIdx] = useState(0);
   const [streamingText, setStreamingText] = useState('');
   const [closed, setClosed] = useState(false);
+  const [cogneeDossier, setCogneeDossier] = useState(null);
+  const [cogneeLoading, setCogneeLoading] = useState(true);
 
   const transcriptRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/tools/research', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            company: LEAD.company,
+            person: { name: LEAD.name, role: LEAD.role },
+            focus: 'objection patterns and prior call outcomes for this persona',
+          }),
+        });
+        const data = await res.json();
+        if (!cancelled) setCogneeDossier(data);
+      } catch (e) {
+        if (!cancelled) setCogneeDossier({ error: e.message });
+      } finally {
+        if (!cancelled) setCogneeLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (paused || takeover || closed) return;
@@ -106,8 +132,30 @@ export function LiveCall({ onClose, takeover, onTakeover, onResumeAgent, showToa
 
   const handleEnd = () => {
     setClosed(true);
-    setAgentThought('Call ended. Post-call agent pipeline triggered: one-pager email + calendar invite + HubSpot stage update + Slack notification to AE Markus.');
+    setAgentThought('Call ended. Post-call agent pipeline triggered: one-pager email + calendar invite + HubSpot stage update + Slack notification to AE Markus. Logging learning into cognee...');
     showToast?.('Call ended · 4 post-call actions queued', 'success');
+
+    const fullTranscript = transcript
+      .map(l => `[${l.t}] ${l.who === 'ai' ? 'Agent' : l.who === 'operator' ? 'You' : LEAD.name}: ${l.text}`)
+      .join('\n');
+
+    fetch('/api/tools/log-learning', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        call_id: `live-${Date.now()}`,
+        company: LEAD.company,
+        persona: { name: LEAD.name, role: LEAD.role },
+        transcript: fullTranscript,
+        objections: ['contract lock-in'],
+        rebuttal_pattern: 'no-lock-pilot',
+        outcome: 'booked',
+        channel: 'phone',
+      }),
+    })
+      .then(() => showToast?.('Learning ingested into cognee · graph updated', 'info'))
+      .catch(() => null);
+
     setTimeout(onClose, 3000);
   };
 
@@ -169,6 +217,8 @@ export function LiveCall({ onClose, takeover, onTakeover, onResumeAgent, showToa
             thought={agentThought}
             confidence={confidence}
             takeover={takeover}
+            cogneeDossier={cogneeDossier}
+            cogneeLoading={cogneeLoading}
           />
         </div>
       </div>
@@ -436,7 +486,7 @@ function SystemNote({ children, kind = 'info' }) {
   );
 }
 
-function ReasoningPanel({ thought, confidence, takeover }) {
+function ReasoningPanel({ thought, confidence, takeover, cogneeDossier, cogneeLoading }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-subtle)' }}>
       <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -445,6 +495,37 @@ function ReasoningPanel({ thought, confidence, takeover }) {
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+        <Section label="Cognee dossier · pre-call recall" compact>
+          {cogneeLoading ? (
+            <div style={{ padding: 12, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>
+              Querying cognee knowledge graph...
+            </div>
+          ) : cogneeDossier?.synthesized ? (
+            <div style={{
+              padding: '12px 14px',
+              background: 'var(--purple-soft)',
+              border: '1px solid var(--purple-border)',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 12,
+              lineHeight: 1.6,
+              color: 'var(--purple)',
+              marginBottom: 8,
+            }}>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                <Dot color="purple" pulse size={5} />
+                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 500, textTransform: 'uppercase', letterSpacing: 1 }}>
+                  cognee · graph_completion
+                </span>
+              </div>
+              <div style={{ color: 'var(--text)' }}>{cogneeDossier.synthesized}</div>
+            </div>
+          ) : (
+            <div style={{ padding: 10, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>
+              No prior intelligence in graph. Researcher running cold.
+            </div>
+          )}
+        </Section>
+
         <Section label="Current thought" compact>
           <div style={{
             padding: '12px 14px',

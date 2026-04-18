@@ -9,17 +9,17 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  const { query, dataset, topK, sessionId } = body as {
+  const { query, dataset, topK, searchType } = body as {
     query?: string;
     dataset?: string;
     topK?: number;
-    sessionId?: string;
+    searchType?: "GRAPH_COMPLETION" | "RAG_COMPLETION" | "CHUNKS" | "SUMMARIES" | "FEELING_LUCKY";
   };
   if (!query) {
     return NextResponse.json({ error: "query is required" }, { status: 400 });
   }
   try {
-    const result = await cognee.recall(query, { dataset, topK, sessionId });
+    const result = await cognee.recall(query, { dataset, topK, searchType });
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 502 });
