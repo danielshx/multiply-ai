@@ -4,7 +4,8 @@ import { NextResponse } from "next/server";
  * POST /api/research/agent
  * Kicks off the HappyRobot Research Agent webhook.
  * Body: { topic: string, agent: string }
- * HR posts the enriched Google Maps results back to /api/research/agent/callback.
+ * HR posts enriched Google Maps results back to /api/research/agent/callback
+ * (the callback URL is hardcoded inside the HR workflow's Return Results node).
  */
 const HR_HOOK_URL =
   process.env.HR_RESEARCH_AGENT_HOOK_URL ??
@@ -22,15 +23,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ??
-    "https://multiply-git-main-danielshxs-projects.vercel.app";
-  const callbackUrl = `${appUrl}/api/research/agent/callback`;
-
   const hrRes = await fetch(HR_HOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ topic, agent, callback_url: callbackUrl }),
+    body: JSON.stringify({ topic, agent }),
   });
 
   if (!hrRes.ok) {
@@ -53,7 +49,6 @@ export async function POST(req: Request) {
     ok: true,
     topic,
     agent,
-    callback_url: callbackUrl,
     hr_response: payload,
   });
 }
