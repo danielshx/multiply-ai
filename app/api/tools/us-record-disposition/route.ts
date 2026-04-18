@@ -44,6 +44,7 @@ export async function POST(req: Request) {
 
   const update: Record<string, unknown> = {
     disposition: decision,
+    status: "completed",
     updated_at: new Date().toISOString(),
   };
   if (body.reason) update.reason = body.reason;

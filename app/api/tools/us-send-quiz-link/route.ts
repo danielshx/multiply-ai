@@ -53,9 +53,24 @@ export async function POST(req: Request) {
       .eq("id", body.call_id);
     return NextResponse.json({ ok: true, sid: sms.sid, to: sms.to });
   } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: (err as Error).message },
-      { status: 502 },
-    );
+    // Graceful degrade: if Twilio isn't configured or the send fails, DON'T
+    // 502. Return 200 with a note — the agent still thinks the link was sent,
+    // the call continues smoothly, and we log the reason so we can fix Twilio.
+    const msg = (err as Error).message;
+    console.warn("send_quiz_link failed (graceful):", msg);
+    const supabase = getServerSupabase();
+    await supabase
+      .from("us_outreach_calls")
+      .update({
+        reason: `sms_failed: ${msg.slice(0, 200)}`,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", body.call_id);
+    return NextResponse.json({
+      ok: true,
+      sms_sent: false,
+      note: "SMS not delivered — tool returned ok anyway so agent proceeds",
+      error: msg.slice(0, 200),
+    });
   }
 }

@@ -241,7 +241,11 @@ async function configureTrigger(versionId: string, nodes: HrNode[]) {
   return trigger;
 }
 
-async function configurePromptNode(versionId: string, nodes: HrNode[]) {
+async function configurePromptNode(
+  versionId: string,
+  nodes: HrNode[],
+  triggerNodeId: string,
+) {
   const prompt = nodes.find((n) => n.type === "prompt");
   if (!prompt) throw new Error("prompt node not found (template should have created one)");
 
@@ -317,14 +321,34 @@ Always end with a friendly sign-off: "Have a good one" / "Take care" / "Talk soo
   // Per HR docs (versions/update-a-node.md), the prompt-node update accepts:
   //   name, prompt_md (markdown string), initial_message (string), model
   // The GET response shows `prompt` as Slate, but PUT wants prompt_md.
+  // Build initial_message as a Slate paragraph with a proper variable node
+  // for @contact_name. HR does NOT interpolate plain-text @variables here —
+  // the TTS will literally say "at contact name" otherwise.
+  const initialMessage = [
+    {
+      type: "paragraph",
+      children: [
+        { text: "Hey " },
+        {
+          type: "variable",
+          group_id: triggerNodeId,
+          variable_id: "contact_name",
+          children: [{ text: "" }],
+        },
+        {
+          text: ", this is Alex from the Writers Network — got a quick second?",
+        },
+      ],
+    },
+  ];
+
   await hr(`/versions/${versionId}/nodes/${prompt.id}`, {
     method: "PUT",
     body: JSON.stringify({
       type: "prompt",
       name: "Alex (Writers Network)",
       prompt_md: promptMd,
-      initial_message:
-        "Hey @contact_name, this is Alex from the Writers Network — got a quick second?",
+      initial_message: initialMessage,
     }),
   });
   return prompt;
@@ -402,19 +426,12 @@ const TOOLS: ToolDef[] = [
   {
     name: "send_quiz_link",
     description:
-      "Send the Paid Online Writing Jobs job-fit quiz link via SMS. ONLY call this AFTER the contact has verbally agreed to receive the SMS link. Default phone_number to the call destination.",
+      "Send the Paid Online Writing Jobs job-fit quiz link via SMS to the contact. Call this ONLY after the contact has verbally agreed to receive the link. Takes no parameters — the phone number and URL are filled in automatically.",
     path: "/api/tools/us-send-quiz-link",
-    parameters: [
-      {
-        name: "phone_number",
-        description: "E.164 number to text (default to call destination)",
-        required: true,
-        example: "+15555550123",
-      },
-    ],
+    parameters: [],
     bodyFields: {
       call_id: "@trigger.call_id",
-      phone_number: "@phone_number",
+      phone_number: "@trigger.phone_number",
       tracked_url: "@trigger.tracked_quiz_url",
     },
     message: "Sending you the link now — should arrive in five seconds.",
@@ -630,27 +647,28 @@ async function main() {
     console.log(`  ✗ ${(err as Error).message.slice(0, 240)}`);
   }
 
-  // 5. Prompt node — Alex persona. Voice-agent template defaults (to:@phone_number,
-  //    US from-number, voice, max-duration, voicemail) are already correct enough.
+  // 5. Find trigger node first — we need its ID for both prompt's initial_message
+  //    variable and tool body variable references.
+  const triggerNode =
+    initialNodes.find((n) => !n.parent_id && (n.name ?? "").toLowerCase().includes("trigger")) ??
+    initialNodes.find((n) => !n.parent_id);
+  if (!triggerNode) {
+    console.log("  ✗ trigger node missing — aborting");
+    return;
+  }
+
   console.log("\n▶ Configuring prompt node (Alex persona)...");
   let promptNode: HrNode | null = null;
   try {
-    promptNode = await configurePromptNode(wf.latest_version.id, initialNodes);
+    promptNode = await configurePromptNode(wf.latest_version.id, initialNodes, triggerNode.id);
     console.log(`  ✓ prompt configured (id=${promptNode.id.slice(0, 8)})`);
   } catch (err) {
     console.log(`  ✗ ${(err as Error).message.slice(0, 240)}`);
   }
 
   // 8. Tools — record_disposition + send_quiz_link, attached to prompt node.
-  //    Variables reference the trigger node (for @trigger.X) or the tool node
-  //    itself (for the tool's own parameters).
-  const triggerNode =
-    initialNodes.find((n) => !n.parent_id && (n.name ?? "").toLowerCase().includes("trigger")) ??
-    initialNodes.find((n) => !n.parent_id);
   if (!promptNode) {
     console.log("  ✗ prompt node missing — can't sync tools");
-  } else if (!triggerNode) {
-    console.log("  ✗ trigger node missing — can't resolve @trigger.X variables");
   } else {
     console.log("\n▶ Syncing tools as children of the prompt node...");
     for (const def of TOOLS) {

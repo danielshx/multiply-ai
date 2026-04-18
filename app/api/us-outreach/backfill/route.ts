@@ -17,11 +17,13 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const supabase = getServerSupabase();
 
-  const { data: stuck, error: selErr } = await supabase
+  // Fetch ALL recent calls then filter in-memory — the chained .neq() was
+  // silently returning zero rows in production even though debug shows rows.
+  const { data: allCalls, error: selErr } = await supabase
     .from("us_outreach_calls")
-    .select("id, hr_run_id, hr_session_id, status")
-    .neq("status", "completed")
-    .neq("status", "failed");
+    .select("id, hr_run_id, hr_session_id, status, contact_name, created_at")
+    .order("created_at", { ascending: false })
+    .limit(50);
 
   if (selErr) {
     return NextResponse.json(
@@ -29,8 +31,26 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-  if (!stuck || stuck.length === 0) {
-    return NextResponse.json({ ok: true, backfilled: 0, note: "no stuck calls" });
+
+  const stuck = (allCalls ?? []).filter(
+    (c) =>
+      c.hr_run_id &&
+      c.status !== "completed" &&
+      c.status !== "failed",
+  );
+
+  if (stuck.length === 0) {
+    return NextResponse.json({
+      ok: true,
+      backfilled: 0,
+      note: "no stuck calls",
+      debug_all_calls: allCalls?.map((c) => ({
+        id: c.id,
+        status: c.status,
+        run: c.hr_run_id,
+        sess: c.hr_session_id,
+      })),
+    });
   }
 
   const { data: events } = await supabase
