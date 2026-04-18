@@ -2,6 +2,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Panel, TextArea, Button, IconPhone } from '@/components/multiply/ui';
 
+const COUNTRIES = [
+  { cc: '1',   iso: 'US', label: '🇺🇸 US' },
+  { cc: '49',  iso: 'DE', label: '🇩🇪 Germany' },
+  { cc: '44',  iso: 'GB', label: '🇬🇧 UK' },
+  { cc: '43',  iso: 'AT', label: '🇦🇹 Austria' },
+  { cc: '41',  iso: 'CH', label: '🇨🇭 Switzerland' },
+  { cc: '33',  iso: 'FR', label: '🇫🇷 France' },
+  { cc: '355', iso: 'AL', label: '🇦🇱 Albania' },
+  { cc: '39',  iso: 'IT', label: '🇮🇹 Italy' },
+  { cc: '34',  iso: 'ES', label: '🇪🇸 Spain' },
+  { cc: '31',  iso: 'NL', label: '🇳🇱 Netherlands' },
+];
+
 /**
  * CampaignPanel — dead-simple queue drain.
  *
@@ -138,8 +151,8 @@ export function CampaignPanel({ onTrigger }) {
         >
           <Label>interval</Label>
           <NumInput value={intervalSec} onChange={setIntervalSec} min={2} max={3600} suffix="s" />
-          <Label>default cc</Label>
-          <CcInput value={defaultCC} onChange={setDefaultCC} />
+          <Label>default country</Label>
+          <CountrySelect value={defaultCC} onChange={setDefaultCC} />
           <div style={{ flex: 1 }} />
           <Stat label="pending" value={pendingLines.length} color="info" />
           <Stat label="called" value={calledLines.length} color="success" />
@@ -304,30 +317,54 @@ function NumInput({ value, onChange, min, max, suffix }) {
   );
 }
 
-function CcInput({ value, onChange }) {
+function CountrySelect({ value, onChange }) {
+  const current = COUNTRIES.find((c) => c.cc === value);
   return (
     <span
       style={{
+        position: 'relative',
         display: 'inline-flex',
         alignItems: 'center',
         background: 'var(--surface)',
         border: '1px solid var(--border-strong)',
         borderRadius: 'var(--radius-sm)',
-        padding: '3px 8px',
+        padding: '2px 24px 2px 8px',
+        minWidth: 130,
       }}
     >
-      <span style={{ color: 'var(--text-tertiary)', fontSize: 11 }}>+</span>
-      <input
+      <select
         value={value}
-        onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
+        onChange={(e) => onChange(e.target.value)}
         style={{
-          width: 34,
           fontSize: 12,
           fontFamily: 'var(--mono)',
           background: 'transparent',
           color: 'var(--text)',
+          padding: '3px 0',
+          appearance: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          minWidth: 0,
+          width: '100%',
         }}
-      />
+      >
+        {COUNTRIES.map((c) => (
+          <option key={c.iso} value={c.cc}>
+            {c.label} (+{c.cc})
+          </option>
+        ))}
+      </select>
+      <span
+        style={{
+          position: 'absolute',
+          right: 8,
+          color: 'var(--text-tertiary)',
+          fontSize: 9,
+          pointerEvents: 'none',
+        }}
+      >
+        ▾
+      </span>
     </span>
   );
 }
