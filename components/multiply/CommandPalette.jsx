@@ -32,12 +32,14 @@ export function CommandPalette({ onAction }) {
 
   const items = [
     { icon: ICON.call, title: 'Listen in on live call', hint: 'Sarah Chen · Northwind', id: 'open-call' },
-    { icon: ICON.graph, title: 'Open Knowledge graph', hint: 'Cognee · 21 learnings', id: 'view-graph' },
+    { icon: ICON.graph, title: 'Open Knowledge graph', hint: 'Cognee · 64 learnings · live recall', id: 'view-graph' },
+    { icon: '🎼', title: 'Open Agent Orchestra', hint: '7 specialists · live handoffs', id: 'view-orchestra' },
     { icon: ICON.trace, title: 'Open Agent trace', hint: 'last run · 21 events', id: 'view-trace' },
     { icon: ICON.pipeline, title: 'Back to Pipeline', hint: 'dashboard', id: 'view-dashboard' },
     { icon: ICON.cognee, title: 'Seed cognee demo data', hint: 'ingest 21 learnings', id: 'seed-cognee' },
     { icon: ICON.demo, title: 'Trigger a test call', hint: 'simulate via HR', id: 'trigger-call' },
     { icon: ICON.tour, title: 'Replay onboarding tour', hint: 'show intro → deployment', id: 'replay-tour' },
+    { icon: '🎬', title: 'Toggle Pitch Mode', hint: '⌘. — amplifies animations + live-demo badge', id: 'pitch-mode' },
     { icon: ICON.calendar, title: 'Book a demo meeting', hint: 'book-meeting tool', id: 'book-meeting' },
     { icon: ICON.slack, title: 'Send test Slack ping', hint: 'if webhook configured', id: 'test-slack' },
     { icon: ICON.docs, title: 'Open README', hint: 'github.com/danielshamsi', id: 'open-readme' },

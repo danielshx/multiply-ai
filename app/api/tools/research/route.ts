@@ -32,8 +32,21 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join(" ");
 
+  // Hard 6s budget — cognee is the brain but the live agent can't wait.
+  // If recall is slow, we fall through to the stub dossier. The graph still
+  // records all interactions via log-learning, so next call gets richer context.
+  let recall: { results: Array<{ text?: string }> } | undefined;
   try {
-    const recall = await cognee.recall(query, { topK: 5, searchType: "GRAPH_COMPLETION" });
+    recall = (await Promise.race([
+      cognee.recall(query, { topK: 5, searchType: "CHUNKS" }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("cognee-timeout-6s")), 6000),
+      ),
+    ])) as { results: Array<{ text?: string }> };
+  } catch {
+    recall = { results: [] };
+  }
+  try {
     const hits = recall?.results ?? [];
 
     if (hits.length === 0 || !hits[0].text) {

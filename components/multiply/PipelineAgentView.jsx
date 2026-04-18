@@ -6,6 +6,13 @@ const STAGE_AGENT_DATA = {
   Detected: {
     agents: [
       {
+        name: 'Candidate Finder',
+        count: 1,
+        instances: [
+          { target: 'Google Maps Research', task: 'Searching LinkedIn for local Bike stores', started: 7, status: 'active', score: 82 },
+        ],
+      },
+      {
         name: 'Signal Hunter',
         count: 3,
         instances: [
@@ -139,7 +146,8 @@ function SpawnModal({ agentName, stage, onClose }) {
   const [status, setStatus] = useState('idle'); // idle | loading | success | error
   const [errorMsg, setErrorMsg] = useState('');
 
-  const isDetected = stage === 'Detected';
+  const isFinder = agentName === 'Candidate Finder';
+  const isDetected = stage === 'Detected' && isFinder;
 
   const handleSpawn = async () => {
     if (isDetected) {
@@ -184,7 +192,7 @@ function SpawnModal({ agentName, stage, onClose }) {
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Spawn new agent</div>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-              Type: {agentName}{isDetected && <span style={{ marginLeft: 6, color: 'var(--accent)', fontWeight: 500 }}>· triggers Google Maps research</span>}
+              Type: {agentName}{isFinder && <span style={{ marginLeft: 6, color: 'var(--accent)', fontWeight: 500 }}>· triggers Google Maps research</span>}
             </div>
           </div>
           <button onClick={onClose} style={{ fontSize: 18, color: 'var(--text-quaternary)', lineHeight: 1, padding: '2px 6px', borderRadius: 'var(--radius-sm)', transition: 'all 120ms' }}

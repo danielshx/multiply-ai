@@ -53,15 +53,11 @@ export function Dashboard({ openCall, showToast, agentsPaused, signalCount, setV
 
   return (
     <>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 1600, margin: '0 auto' }}>
-        <Header companyData={companyData} />
-        <PipelinePanel setView={setView} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 1100, margin: '0 auto' }}>
+        <Header />
         <HeroStrip openCall={openCall} />
         <KpiRow signalCount={signalCount} expanded={kpiExpanded} setExpanded={setKpiExpanded} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)', gap: 16 }}>
-          <SignalFeed signals={signals} onSignalClick={setSignalDrawer} openCall={openCall} />
-          <AgentLoopPanel openCall={openCall} setView={setView} />
-        </div>
+        <SignalFeed signals={signals} onSignalClick={setSignalDrawer} openCall={openCall} />
       </div>
 
       <SignalDrawer signal={signalDrawer} onClose={() => setSignalDrawer(null)} openCall={openCall} showToast={showToast} />
@@ -70,18 +66,15 @@ export function Dashboard({ openCall, showToast, agentsPaused, signalCount, setV
   );
 }
 
-function Header({ companyData }) {
+function Header() {
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   return (
-    <div style={{ marginBottom: 4 }}>
-      <h1 className="serif" style={{ fontSize: 28, letterSpacing: -0.6, fontWeight: 400, marginBottom: 4 }}>
+    <div style={{ marginBottom: 0 }}>
+      <h1 className="serif" style={{ fontSize: 32, letterSpacing: -0.8, fontWeight: 400, lineHeight: 1.1 }}>
         {greeting}.
       </h1>
-      <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-        Your team opened 23 new hot leads overnight. <span style={{ color: 'var(--text)', fontWeight: 500 }}>Sarah Chen</span> at Northwind Robotics is on a live call right now.
-      </p>
     </div>
   );
 }
@@ -168,7 +161,7 @@ function HeroWave() {
   );
 }
 
-function KpiRow({ signalCount, expanded, setExpanded }) {
+function KpiRow({ signalCount }) {
   const kpis = [
     { ...KPIS[0], value: signalCount, key: 'signals' },
     { ...KPIS[1], key: 'leads' },
@@ -176,31 +169,33 @@ function KpiRow({ signalCount, expanded, setExpanded }) {
     { ...KPIS[3], key: 'reply' },
   ];
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-      {kpis.map((k) => (
-        <Card
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(4, 1fr)',
+      background: 'var(--surface)',
+      border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-lg)',
+      boxShadow: 'var(--shadow-xs)',
+      overflow: 'hidden',
+    }}>
+      {kpis.map((k, i) => (
+        <div
           key={k.key}
-          padding={18}
-          clickable
-          hoverLift
-          onClick={() => setExpanded(expanded === k.key ? null : k.key)}
+          style={{
+            padding: '18px 20px',
+            borderRight: i < kpis.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+          }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 1, fontFamily: 'var(--mono)' }}>
-              {k.label}
-            </div>
-            <div style={{ fontSize: 10, color: 'var(--text-quaternary)' }}>
-              <IconArrow size={10} />
-            </div>
+          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: 1, fontFamily: 'var(--mono)', marginBottom: 6 }}>
+            {k.label}
           </div>
-          <div className="serif" style={{ fontSize: 32, fontWeight: 400, letterSpacing: -1, marginBottom: 4 }}>
+          <div className="serif" style={{ fontSize: 28, fontWeight: 400, letterSpacing: -0.8, lineHeight: 1, marginBottom: 4 }}>
             {typeof k.value === 'number' ? <CountUp to={k.value} /> : k.value}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--success)', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontFamily: 'var(--mono)' }}>↗</span> {k.delta}
+          <div style={{ fontSize: 11, color: 'var(--success)' }}>
+            ↗ {k.delta}
           </div>
-          <MiniSparkline kpiKey={k.key} />
-        </Card>
+        </div>
       ))}
     </div>
   );

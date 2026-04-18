@@ -15,6 +15,9 @@ import { PipelineAgentView } from './PipelineAgentView';
 import { SystemStatusBar } from './SystemStatusBar';
 import { RevenueTicker } from './RevenueTicker';
 import { CommandPalette } from './CommandPalette';
+import { AgentOrchestra } from './AgentOrchestra';
+import { ParticleField } from './ParticleField';
+import { PitchModeOverlay, setPitchMode, getPitchMode } from './PitchMode';
 
 const STAGE = { INTRO: 'intro', ONBOARDING: 'onboarding', DEPLOYING: 'deploying', APP: 'app' };
 
@@ -112,7 +115,8 @@ export default function App() {
   if (stage === STAGE.DEPLOYING) return <AgentDeployment companyData={companyData} onComplete={handleDeploymentComplete} />;
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}>
+      <ParticleField opacity={0.08} density={0.00003} />
       <TopBar
         view={view}
         setView={setView}
@@ -122,7 +126,7 @@ export default function App() {
         currentTime={currentTime}
         companyData={companyData}
       />
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', position: 'relative', zIndex: 5 }}>
         <Sidebar view={view} setView={setView} agentsPaused={agentsPaused} resetDemo={resetDemo} selectedAgent={selectedAgent} setSelectedAgent={setSelectedAgent} />
         <main style={{ flex: 1, overflow: 'auto', padding: 20 }}>
           {view === 'dashboard' && (
@@ -137,13 +141,12 @@ export default function App() {
           )}
           {view === 'trace' && <AgentTrace />}
           {view === 'graph' && <KnowledgeGraph />}
+          {view === 'orchestra' && <AgentOrchestra />}
           {view === 'agent' && <AgentDetail agentName={selectedAgent} />}
           {view.startsWith('pipeline_') && !view.startsWith('pipeline_agents_') && <PipelineView stage={view.replace('pipeline_', '')} />}
           {view.startsWith('agents_pipeline_') && <PipelineAgentView stage={view.replace('agents_pipeline_', '')} />}
         </main>
       </div>
-
-      <SystemStatusBar />
 
       {callOpen && (
         <LiveCall
@@ -160,14 +163,31 @@ export default function App() {
           switch (id) {
             case 'open-call':     return setCallOpen(true);
             case 'view-graph':    return setView('graph');
+            case 'view-orchestra':return setView('orchestra');
             case 'view-trace':    return setView('trace');
             case 'view-dashboard':return setView('dashboard');
             case 'replay-tour':   return replayTour();
+            case 'pitch-mode':
+              setPitchMode(!getPitchMode());
+              showToast(getPitchMode() ? 'Pitch Mode ON · live demo styling' : 'Pitch Mode OFF', getPitchMode() ? 'success' : 'info');
+              return;
             case 'seed-cognee':
               fetch('/api/cognee/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
                 .then(() => showToast('Cognee seed started · graph rebuilding', 'info'));
               return;
-            case 'trigger-call':  return setCallOpen(true);
+            case 'trigger-call':
+              showToast('Triggering HR workflow run...', 'info');
+              fetch('/api/hr-trigger', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(r => r.json())
+                .then(d => {
+                  if (d.ok && d.queued_run_ids) {
+                    showToast(`HR run queued · ${d.queued_run_ids[0].slice(0, 8)}`, 'success');
+                  } else {
+                    showToast(`HR trigger failed: ${d.error ?? 'unknown'}`, 'warning');
+                  }
+                });
+              setCallOpen(true);
+              return;
             case 'book-meeting':
               fetch('/api/tools/book-meeting', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ company: 'Command Palette Demo', attendee_email: 'demo@multiply.ai', proposed_slots: [new Date(Date.now() + 86400000).toISOString()] }) })
@@ -185,77 +205,79 @@ export default function App() {
       />
 
       {toast && <Toast key={toast.id} text={toast.text} kind={toast.kind} />}
+      <PitchModeOverlay />
     </div>
   );
 }
 
-function TopBar({ view, setView, agentsPaused, onTogglePause, signalCount, companyData }) {
+function TopBar({ view, setView, agentsPaused, onTogglePause }) {
   return (
     <div style={{
-      height: 52,
+      height: 48,
       borderBottom: '1px solid var(--border)',
       display: 'flex',
       alignItems: 'center',
       padding: '0 20px',
-      gap: 20,
+      gap: 16,
       background: 'var(--surface)',
       flexShrink: 0,
+      position: 'relative',
+      zIndex: 10,
     }}>
-      <Wordmark size={15} />
-      <div style={{ height: 20, width: 1, background: 'var(--border)' }} />
-      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 1 }}>
-        {companyData?.website || 'demo workspace'}
-      </div>
+      <Wordmark size={14} />
 
-      <div style={{ height: 20, width: 1, background: 'var(--border)' }} />
+      <div style={{ height: 18, width: 1, background: 'var(--border)', marginLeft: 4 }} />
 
-      <div style={{ display: 'flex', gap: 2 }}>
+      <div style={{ display: 'flex', gap: 1 }}>
         <TabButton active={view === 'dashboard'} onClick={() => setView('dashboard')}>Pipeline</TabButton>
-        <TabButton active={view === 'trace'} onClick={() => setView('trace')}>Agent trace</TabButton>
-        <TabButton active={view === 'graph'} onClick={() => setView('graph')}>Knowledge graph</TabButton>
-        <TabButton active={false} onClick={() => {}}>Playbooks</TabButton>
+        <TabButton active={view === 'orchestra'} onClick={() => setView('orchestra')}>Orchestra</TabButton>
+        <TabButton active={view === 'graph'} onClick={() => setView('graph')}>Knowledge</TabButton>
+        <TabButton active={view === 'trace'} onClick={() => setView('trace')}>Trace</TabButton>
       </div>
 
       <div style={{ flex: 1 }} />
 
-      <RevenueTicker />
-
       <button
         onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
+        title="Search, commands, quick actions"
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
-          padding: '5px 10px',
-          background: 'var(--bg-subtle)',
+          padding: '4px 10px',
+          background: 'transparent',
           border: '1px solid var(--border)',
           borderRadius: 'var(--radius-sm)',
           fontSize: 12, color: 'var(--text-tertiary)',
           cursor: 'pointer',
           transition: 'all 120ms ease',
-          width: 200,
         }}
-        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--border-strong)'}
-        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--border)'}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border-strong)'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-tertiary)'; }}
       >
-        <IconSearch size={12} />
-        <span>Search or jump to…</span>
-        <span style={{ flex: 1 }} />
+        <IconSearch size={11} />
         <Kbd>⌘K</Kbd>
       </button>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <LiveActivityIndicator />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-          <Dot color={agentsPaused ? 'warning' : 'success'} pulse={!agentsPaused} />
-          <span style={{ fontWeight: 500 }}>{agentsPaused ? '7 paused' : '7 live'}</span>
-        </div>
-        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>
-          {signalCount.toLocaleString()} signals
-        </span>
-      </div>
+      <LiveActivityIndicator />
 
-      <Button size="sm" variant={agentsPaused ? 'accent' : 'default'} onClick={onTogglePause}>
-        {agentsPaused ? 'Resume' : 'Pause all'}
-      </Button>
+      <button
+        onClick={onTogglePause}
+        title={agentsPaused ? 'Resume all 7 agents' : 'Pause all 7 agents'}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 7,
+          padding: '5px 10px',
+          background: agentsPaused ? 'var(--warning-soft)' : 'transparent',
+          border: `1px solid ${agentsPaused ? 'var(--warning-border)' : 'var(--border)'}`,
+          borderRadius: 'var(--radius-sm)',
+          fontSize: 12,
+          color: agentsPaused ? 'var(--warning)' : 'var(--text-secondary)',
+          cursor: 'pointer',
+          fontWeight: 500,
+          transition: 'all 120ms ease',
+        }}
+      >
+        <Dot color={agentsPaused ? 'warning' : 'success'} pulse={!agentsPaused} size={5} />
+        <span>{agentsPaused ? '7 paused' : '7 live'}</span>
+      </button>
     </div>
   );
 }
@@ -286,10 +308,6 @@ function Sidebar({ agentsPaused, resetDemo, view, setView, selectedAgent, setSel
   const onPipelineClick = (label) => setView('pipeline_' + label);
 
   const items = [
-    { section: 'Intake', rows: [
-      { label: 'Live signals', count: 2847 },
-      { label: 'Hot leads', count: 23 },
-    ]},
     { section: 'Pipeline', rows: [
       { label: 'Detected', count: 82, onClick: onPipelineClick, active: view === 'pipeline_Detected' },
       { label: 'Engaged', count: 54, onClick: onPipelineClick, active: view === 'pipeline_Engaged' },
@@ -297,25 +315,16 @@ function Sidebar({ agentsPaused, resetDemo, view, setView, selectedAgent, setSel
       { label: 'Booked', count: 17, onClick: onPipelineClick, active: view === 'pipeline_Booked' },
       { label: 'Closed', count: 8, onClick: onPipelineClick, active: view === 'pipeline_Closed' },
     ]},
-    { section: 'Agents', rows: [
-      { label: 'Signal Hunter', status: agentsPaused ? 'paused' : 'live', onClick: onAgentClick, active: view === 'agent' && selectedAgent === 'Signal Hunter' },
-      { label: 'Prospector', status: agentsPaused ? 'paused' : 'live', onClick: onAgentClick, active: view === 'agent' && selectedAgent === 'Prospector' },
-      { label: 'Researcher', status: agentsPaused ? 'paused' : 'live', onClick: onAgentClick, active: view === 'agent' && selectedAgent === 'Researcher' },
-      { label: 'Personaliser', status: agentsPaused ? 'paused' : 'live', onClick: onAgentClick, active: view === 'agent' && selectedAgent === 'Personaliser' },
-      { label: 'Qualifier', status: agentsPaused ? 'paused' : 'live', onClick: onAgentClick, active: view === 'agent' && selectedAgent === 'Qualifier' },
-      { label: 'Negotiator', status: 'standby', onClick: onAgentClick, active: view === 'agent' && selectedAgent === 'Negotiator' },
-      { label: 'Closer', status: 'standby', onClick: onAgentClick, active: view === 'agent' && selectedAgent === 'Closer' },
-    ]},
   ];
 
   return (
     <aside style={{
-      width: 220,
+      width: 184,
       borderRight: '1px solid var(--border)',
-      padding: '16px 12px',
+      padding: '20px 10px 12px',
       overflow: 'auto',
       flexShrink: 0,
-      background: 'var(--surface)',
+      background: 'transparent',
       display: 'flex',
       flexDirection: 'column',
     }}>

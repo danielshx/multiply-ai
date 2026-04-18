@@ -26,17 +26,34 @@ export function LiveCall({ onClose, takeover, onTakeover, onResumeAgent, showToa
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/tools/research', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            company: LEAD.company,
-            person: { name: LEAD.name, role: LEAD.role },
-            focus: 'objection patterns and prior call outcomes for this persona',
-          }),
-        });
-        const data = await res.json();
-        if (!cancelled) setCogneeDossier(data);
+        // Fire precall brief + research in parallel — precall is the smart
+        // orchestrator that combines cognee + news + persona inference
+        const [briefRes, researchRes] = await Promise.all([
+          fetch('/api/intel/precall', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              company: LEAD.company,
+              person: { name: LEAD.name, role: LEAD.role },
+              focus: 'objection handling for post-Series-B CTO',
+            }),
+          }).then((r) => r.json()).catch(() => null),
+          fetch('/api/tools/research', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              company: LEAD.company,
+              person: { name: LEAD.name, role: LEAD.role },
+              focus: 'objection patterns and prior call outcomes',
+            }),
+          }).then((r) => r.json()).catch(() => null),
+        ]);
+        if (!cancelled) {
+          setCogneeDossier({
+            ...(researchRes ?? {}),
+            brief: briefRes,
+          });
+        }
       } catch (e) {
         if (!cancelled) setCogneeDossier({ error: e.message });
       } finally {
@@ -133,14 +150,15 @@ export function LiveCall({ onClose, takeover, onTakeover, onResumeAgent, showToa
 
   const handleEnd = () => {
     setClosed(true);
-    setAgentThought('Call ended. Post-call agent pipeline triggered: one-pager email + calendar invite + HubSpot stage update + Slack notification to AE Markus. Logging learning into cognee...');
-    showToast?.('Call ended · 4 post-call actions queued', 'success');
+    setAgentThought('Call ended. Post-call intelligence pipeline running: extracting BANT, sentiment arc, rebuttals. Writing structured learning to cognee knowledge graph...');
+    showToast?.('Call ended · analyzing transcript', 'info');
 
     const fullTranscript = transcript
       .map(l => `[${l.t}] ${l.who === 'ai' ? 'Agent' : l.who === 'operator' ? 'You' : LEAD.name}: ${l.text}`)
       .join('\n');
 
-    fetch('/api/tools/log-learning', {
+    // Postcall intel = auto-extract BANT + sentiment + objections + rebuttals + writes to cognee
+    fetch('/api/intel/postcall', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -148,14 +166,35 @@ export function LiveCall({ onClose, takeover, onTakeover, onResumeAgent, showToa
         company: LEAD.company,
         persona: { name: LEAD.name, role: LEAD.role },
         transcript: fullTranscript,
-        objections: ['contract lock-in'],
-        rebuttal_pattern: 'no-lock-pilot',
-        outcome: 'booked',
         channel: 'phone',
       }),
     })
-      .then(() => showToast?.('Learning ingested into cognee · graph updated', 'info'))
-      .catch(() => null);
+      .then(r => r.json())
+      .then(d => {
+        const lines = [
+          `Outcome: ${d.outcome}`,
+          d.confidence?.close_probability ? `Close probability: ${d.confidence.close_probability}%` : '',
+          d.objections?.length ? `${d.objections.length} objection${d.objections.length > 1 ? 's' : ''} detected` : '',
+          d.rebuttals?.length ? `${d.rebuttals.length} rebuttal${d.rebuttals.length > 1 ? 's' : ''} deployed` : '',
+        ].filter(Boolean).join(' · ');
+        showToast?.(`Intel done · ${lines}`, 'success');
+      })
+      .catch(() => showToast?.('Intel write failed — check /api/intel/postcall', 'warning'));
+
+    // Also suggest next-best-actions
+    fetch('/api/intel/next-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lead: {
+          company: LEAD.company,
+          persona_role: LEAD.role,
+          stage: 'booked',
+          last_outcome: 'booked',
+          hours_since_last_touch: 0,
+        },
+      }),
+    }).catch(() => null);
 
     setTimeout(onClose, 3000);
   };
@@ -514,6 +553,55 @@ function ReasoningPanel({ thought, confidence, takeover, cogneeDossier, cogneeLo
             localTime={munichTime}
           />
         </Section>
+
+        {cogneeDossier?.brief && cogneeDossier.brief.ok && (
+          <Section label={`Pre-call brief · ${cogneeDossier.brief.confidence_score}% context`} compact>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {cogneeDossier.brief.opener_hint && (
+                <div style={{
+                  padding: 10,
+                  background: 'var(--accent-soft)',
+                  border: '1px solid var(--accent-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: 12,
+                  lineHeight: 1.5,
+                }}>
+                  <div style={{ fontSize: 9, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: 1, color: 'var(--accent-text)', fontWeight: 600, marginBottom: 3 }}>
+                    💡 Opener hint
+                  </div>
+                  <div style={{ color: 'var(--text)' }}>{cogneeDossier.brief.opener_hint}</div>
+                </div>
+              )}
+              {cogneeDossier.brief.ready_rebuttals?.slice(0, 3).map((r, i) => (
+                <div key={i} style={{
+                  padding: 8,
+                  background: 'var(--bg-subtle)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: 11,
+                  display: 'flex',
+                  gap: 6,
+                  alignItems: 'center',
+                }}>
+                  <span style={{ fontFamily: 'var(--mono)', color: 'var(--purple)', fontWeight: 500 }}>{r.pattern}</span>
+                  <span style={{ color: 'var(--text-tertiary)' }}>→ if {r.trigger}</span>
+                </div>
+              ))}
+              {cogneeDossier.brief.recent_news?.[0] && (
+                <div style={{
+                  padding: 8,
+                  background: 'var(--info-soft)',
+                  border: '1px solid var(--info-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: 11,
+                  color: 'var(--info)',
+                }}>
+                  📰 {cogneeDossier.brief.recent_news[0].headline.slice(0, 100)}
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
 
         <Section label="Cognee dossier · pre-call recall" compact>
           {cogneeLoading ? (

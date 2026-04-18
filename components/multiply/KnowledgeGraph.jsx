@@ -1,6 +1,8 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { Dot, Button, Panel } from './ui';
+import { CogneeIntelligence } from './CogneeIntelligence';
+import { CogneeForceGraph } from './CogneeForceGraph';
 
 const NODE_COLORS = {
   persona: { bg: 'var(--purple-soft)', fg: 'var(--purple)', bd: 'var(--purple-border)', dot: 'purple' },
@@ -12,29 +14,28 @@ const NODE_COLORS = {
 };
 
 export function KnowledgeGraph() {
-  const [datasetId, setDatasetId] = useState(null);
-  const [error, setError] = useState(null);
+  const [graph, setGraph] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
   const [recallQuery, setRecallQuery] = useState('contract lock-in CTO');
   const [recallResults, setRecallResults] = useState(null);
   const [recallLoading, setRecallLoading] = useState(false);
-  const [iframeKey, setIframeKey] = useState(0);
+  const [highlight, setHighlight] = useState(null);
 
   const fetchGraph = async () => {
     try {
-      const res = await fetch('/api/cognee/graph');
+      const res = await fetch('/api/cognee/graph-data', { cache: 'no-store' });
       const data = await res.json();
-      setDatasetId(data.datasetId ?? null);
-      setError(data.error ?? null);
+      setGraph(data);
     } catch (e) {
-      setError(e.message);
+      console.warn('graph-data failed', e);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchGraph();
-    const id = setInterval(fetchGraph, 8000);
-    return () => clearInterval(id);
   }, []);
 
   const seed = async () => {
@@ -42,7 +43,6 @@ export function KnowledgeGraph() {
     try {
       await fetch('/api/cognee/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reset: false }) });
       await fetchGraph();
-      setIframeKey(k => k + 1);
     } finally {
       setSeeding(false);
     }
@@ -53,7 +53,6 @@ export function KnowledgeGraph() {
     try {
       await fetch('/api/cognee/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reset: true }) });
       await fetchGraph();
-      setIframeKey(k => k + 1);
     } finally {
       setSeeding(false);
     }
@@ -62,22 +61,38 @@ export function KnowledgeGraph() {
   const recall = async () => {
     if (!recallQuery.trim()) return;
     setRecallLoading(true);
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
     try {
       const res = await fetch('/api/cognee/recall', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: recallQuery, topK: 5 }),
+        body: JSON.stringify({ query: recallQuery, topK: 5, searchType: 'CHUNKS' }),
+        signal: ctrl.signal,
       });
       const data = await res.json();
       setRecallResults(data);
+      const ids = matchHighlights(graph, recallQuery);
+      setHighlight(ids);
     } catch (e) {
-      setRecallResults({ error: e.message });
+      const local = localFallbackRecall(graph, recallQuery, 5);
+      setRecallResults({
+        results: local,
+        fallback: true,
+        error: e.name === 'AbortError' ? 'cognee timed out — showing local seed-derived hits' : e.message,
+      });
+      setHighlight(matchHighlights(graph, recallQuery));
     } finally {
+      clearTimeout(timer);
       setRecallLoading(false);
     }
   };
 
-  const empty = !datasetId;
+  const sourceBadge = graph?.source === 'cognee'
+    ? { color: 'success', label: 'cognee · live' }
+    : graph?.source === 'fallback'
+    ? { color: 'warning', label: 'cognee unreachable · derived snapshot' }
+    : { color: 'accent', label: 'derived from 64 seed-learnings' };
 
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -90,28 +105,27 @@ export function KnowledgeGraph() {
         </p>
       </div>
 
-      {error && (
-        <div style={{
-          padding: '10px 14px',
-          background: 'var(--warning-soft)',
-          border: '1px solid var(--warning-border)',
-          borderRadius: 'var(--radius-md)',
-          fontSize: 12,
-          color: 'var(--warning)',
-          fontFamily: 'var(--mono)',
-        }}>
-          Cognee unreachable — start it with <code>docker compose -f docker-compose.cognee.yml up -d</code>. ({error})
-        </div>
-      )}
+      <CogneeIntelligence onResultsHighlight={(q) => setHighlight(matchHighlights(graph, q))} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: 16 }}>
         <Panel
           title="Live graph"
-          subtitle={datasetId ? `dataset · cognee cloud` : 'no dataset yet'}
+          subtitle={
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Dot color={sourceBadge.color} size={5} pulse={graph?.source === 'cognee'} />
+              {sourceBadge.label}
+              {graph?.stats && (
+                <span style={{ color: 'var(--text-tertiary)' }}>· {graph.stats.totalNodes} nodes · {graph.stats.totalEdges} edges</span>
+              )}
+            </span>
+          }
           action={
             <div style={{ display: 'flex', gap: 6 }}>
+              <Button size="xs" variant="ghost" onClick={fetchGraph} disabled={loading}>
+                {loading ? '…' : 'Refresh'}
+              </Button>
               <Button size="xs" variant="default" onClick={seed} disabled={seeding}>
-                {seeding ? 'Seeding…' : 'Seed demo data'}
+                {seeding ? 'Seeding…' : 'Seed cognee'}
               </Button>
               <Button size="xs" variant="ghost" onClick={reset} disabled={seeding}>
                 Reset
@@ -120,24 +134,32 @@ export function KnowledgeGraph() {
           }
         >
           <div style={{ height: 520, position: 'relative', overflow: 'hidden', background: '#fff' }}>
-            {empty ? (
+            {loading ? (
+              <LoadingState />
+            ) : !graph?.nodes?.length ? (
               <EmptyState onSeed={seed} seeding={seeding} />
             ) : (
-              <iframe
-                key={iframeKey}
-                src={`/api/cognee/graph?format=html&t=${iframeKey}`}
-                title="Cognee knowledge graph"
-                style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+              <CogneeForceGraph
+                data={graph}
+                height={520}
+                highlightedIds={highlight}
+                onNodeClick={(n) => {
+                  const next = new Set([n.id]);
+                  for (const e of graph.edges) {
+                    if (e.source === n.id || e.target === n.id) {
+                      next.add(typeof e.source === 'string' ? e.source : e.source.id);
+                      next.add(typeof e.target === 'string' ? e.target : e.target.id);
+                    }
+                  }
+                  setHighlight(next);
+                }}
               />
             )}
           </div>
         </Panel>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Panel
-            title="Recall test"
-            subtitle="what the Negotiator sees"
-          >
+          <Panel title="Recall test" subtitle="what the Negotiator sees">
             <div style={{ padding: 16 }}>
               <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
                 <input
@@ -182,9 +204,9 @@ export function KnowledgeGraph() {
                 ))}
               </div>
 
-              {recallResults?.error && (
-                <div style={{ fontSize: 11, color: 'var(--danger)', fontFamily: 'var(--mono)' }}>
-                  {recallResults.error}
+              {recallResults?.fallback && (
+                <div style={{ fontSize: 10, color: 'var(--warning)', fontFamily: 'var(--mono)', marginBottom: 8 }}>
+                  ⚠ {recallResults.error}
                 </div>
               )}
 
@@ -203,7 +225,7 @@ export function KnowledgeGraph() {
                       <div style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
                         <Dot color="accent" size={5} pulse={i === 0} />
                         <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent-text)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 1 }}>
-                          {i === 0 ? 'Top answer · GRAPH_COMPLETION' : `Hit ${i + 1}`}
+                          {i === 0 ? 'Top hit' : `Hit ${i + 1}`}
                         </span>
                       </div>
                       <div>{r.text}</div>
@@ -211,14 +233,13 @@ export function KnowledgeGraph() {
                   ))}
                 </div>
               )}
-              {recallResults && (recallResults.results?.length ?? 0) === 0 && !recallResults.error && (
+              {recallResults && !recallResults.fallback && (recallResults.results?.length ?? 0) === 0 && !recallResults.error && (
                 <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>
                   No hits — graph may still be cognifying. Try again in 30-60s.
                 </div>
               )}
             </div>
           </Panel>
-
         </div>
       </div>
 
@@ -245,6 +266,43 @@ export function KnowledgeGraph() {
   );
 }
 
+function matchHighlights(graph, query) {
+  if (!graph?.nodes || !query) return null;
+  const q = query.toLowerCase();
+  const tokens = q.split(/[^a-z0-9]+/).filter(t => t.length > 2);
+  if (!tokens.length) return null;
+  const ids = new Set();
+  for (const n of graph.nodes) {
+    const hay = `${n.label} ${n.id} ${n.type}`.toLowerCase();
+    if (tokens.some(t => hay.includes(t))) ids.add(n.id);
+  }
+  return ids.size ? ids : null;
+}
+
+function localFallbackRecall(graph, query, topK = 5) {
+  if (!query) return [];
+  const q = query.toLowerCase();
+  const tokens = q.split(/[^a-z0-9]+/).filter(t => t.length > 2);
+  if (!tokens.length || !graph?.nodes) return [];
+  const scored = graph.nodes.map(n => {
+    const hay = `${n.label} ${n.id} ${n.type}`.toLowerCase();
+    const score = tokens.reduce((s, t) => s + (hay.includes(t) ? 1 : 0), 0);
+    return { n, score };
+  }).filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, topK);
+  return scored.map(({ n }) => ({ text: `${n.type.replace('_', ' ')} · ${n.label} (weight ${n.weight})` }));
+}
+
+function LoadingState() {
+  return (
+    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
+      <Dot color="accent" pulse size={6} />
+      <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text-tertiary)' }}>
+        building graph…
+      </span>
+    </div>
+  );
+}
+
 function EmptyState({ onSeed, seeding }) {
   return (
     <div style={{
@@ -257,7 +315,7 @@ function EmptyState({ onSeed, seeding }) {
         Empty graph.
       </div>
       <div style={{ fontSize: 12, color: 'var(--text-tertiary)', textAlign: 'center', maxWidth: 360, lineHeight: 1.55 }}>
-        Seed 21 demo learnings (5 personas, 8 prior calls, 7 rebuttal patterns) so the Negotiator has something to recall during the demo.
+        Seed 64 demo learnings (12 personas, 20 prior calls, 15 rebuttal patterns) so the Negotiator has something to recall during the demo.
       </div>
       <Button size="sm" variant="primary" onClick={onSeed} disabled={seeding}>
         {seeding ? 'Seeding…' : 'Seed demo data'}
@@ -283,4 +341,3 @@ function Bullet({ tone, label, body }) {
     </div>
   );
 }
-
