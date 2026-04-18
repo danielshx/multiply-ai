@@ -158,14 +158,19 @@ async function handleHrEvent(
       if (current === "failed" || current === "error") update.status = "failed";
       await supabase.from("us_outreach_calls").update(update).eq("id", callId);
 
-      // On session start, also kick a sync so we grab the first messages
-      // without waiting for the client to poll.
+      // AWAIT the sync (not fire-and-forget — Vercel kills the lambda on
+      // response otherwise, so fire-and-forget fetches were silently dying).
+      // Slight webhook latency penalty, but messages actually land in DB.
       if (current === "in-progress" || current === "completed") {
         const appUrl =
           process.env.MULTIPLY_APP_URL ??
           process.env.NEXT_PUBLIC_APP_URL ??
           "https://multiply-danielshxs-projects.vercel.app";
-        fetch(`${appUrl}/api/us-outreach/sync/${callId}`).catch(() => null);
+        try {
+          await fetch(`${appUrl}/api/us-outreach/sync/${callId}`);
+        } catch {
+          /* best-effort */
+        }
       }
       break;
     }

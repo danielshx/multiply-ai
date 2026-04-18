@@ -22,11 +22,16 @@ export async function GET() {
     .order("created_at", { ascending: false })
     .limit(5);
 
-  const { data: messages, error: messagesErr } = await supabase
+  // Do NOT use .order("ts") — returns 0 rows due to a PostgREST quirk
+  // (same issue hits the drawer + live panel). Sort in JS.
+  const { data: messagesRaw, error: messagesErr } = await supabase
     .from("us_outreach_messages")
     .select("id, call_id, role, content, ts")
-    .order("ts", { ascending: false })
-    .limit(10);
+    .limit(50);
+  const messages = (messagesRaw ?? [])
+    .slice()
+    .sort((a, b) => new Date(b.ts ?? 0).getTime() - new Date(a.ts ?? 0).getTime())
+    .slice(0, 10);
   const { count: messagesCount } = await supabase
     .from("us_outreach_messages")
     .select("*", { count: "exact", head: true });

@@ -27,6 +27,29 @@ function normalizePhone(raw: string): string {
   return `+${trimmed}`;
 }
 
+/**
+ * Map the phone's country prefix to a language code + opener. German-speaking
+ * regions (Germany, Austria, Switzerland) get German; everything else English.
+ */
+function languageFor(phone: string, name: string) {
+  const n = name?.trim() || "";
+  const firstName = n || "there";
+  if (/^\+49/.test(phone) || /^\+43/.test(phone) || /^\+41/.test(phone)) {
+    return {
+      language: "de",
+      language_name: "Deutsch",
+      greeting_word: "Hallo",
+      initial_line: `Hallo ${firstName}, hier ist Alex vom Writers Network — hast du kurz eine Sekunde?`,
+    };
+  }
+  return {
+    language: "en",
+    language_name: "English",
+    greeting_word: "Hey",
+    initial_line: `Hey ${firstName}, this is Alex from the Writers Network — got a quick second?`,
+  };
+}
+
 export async function POST(req: Request) {
   const key = process.env.HR_API_KEY;
   const wfId = process.env.HR_US_WORKFLOW_ID ?? process.env.HR_WORKFLOW_ID;
@@ -74,6 +97,7 @@ export async function POST(req: Request) {
 
   const callId = row.id as string;
   const trackedUrl = buildTrackedQuizUrl(callId);
+  const lang = languageFor(phone, contactName);
 
   const payload = {
     call_id: callId,
@@ -83,6 +107,9 @@ export async function POST(req: Request) {
     product_url: AFFILIATE.productUrl,
     quiz_hop_id: AFFILIATE.hopId,
     tracked_quiz_url: trackedUrl,
+    language: lang.language,
+    language_name: lang.language_name,
+    initial_line: lang.initial_line,
   };
 
   try {
