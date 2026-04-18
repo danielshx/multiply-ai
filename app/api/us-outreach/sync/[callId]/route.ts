@@ -107,7 +107,15 @@ export async function GET(
     );
   }
 
-  const sessionId = run.session_id ?? run.session?.id ?? null;
+  // HR's GET /runs/{id} doesn't return session_id, so rely on the value
+  // already persisted on the call row (set by the webhook handler when HR
+  // fires session.status_changed). Fall back to the run response in case
+  // the API shape changes in a future version.
+  const sessionId =
+    (call.hr_session_id as string | undefined) ??
+    run.session_id ??
+    run.session?.id ??
+    null;
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (sessionId && call.hr_session_id !== sessionId) update.hr_session_id = sessionId;
   if (run.status === "running" && call.status !== "live") update.status = "live";
