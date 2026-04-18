@@ -6,101 +6,162 @@ import { getServerSupabase } from "@/lib/supabase/server";
  * Receives results from the HappyRobot Research Agent workflow and inserts
  * each place into googlemaps_candidates.
  *
- * Accepted shapes:
- *   { topic, agent, candidates: [{ place_name, phone_number, company_type, ... }] }
- *   { topic, agent, places_json: "[...]" }
+ * Tolerant to multiple payload shapes HR can emit:
+ *   { topic, agent, candidates: [ ... ] }
+ *   { topic, agent, places: [ ... ] }
+ *   { topic, agent, places_json: "[...]" }     // stringified JSON array
+ *   { topic, agent, places_json: [ ... ] }     // already-parsed array
+ *   { topic, agent, places_json: { ... } }     // single object
  *   { topic, agent, ...single_candidate_fields }
+ *
+ * Always returns 200 so the HR workflow run is not marked as a schema error;
+ * failure reasons are surfaced in the JSON body (ok: false).
  */
-type Candidate = {
-  place_name?: string;
-  name?: string;
-  phone_number?: string;
-  phone?: string;
-  company_type?: string;
-  category?: string;
-  type?: string;
-  address?: string;
-  formatted_address?: string;
-  website?: string;
-  email?: string;
-  rating?: number | string;
-  review_count?: number | string;
-  user_ratings_total?: number | string;
-  hours?: string;
-  opening_hours?: string;
-  description?: string;
-  sales_notes?: string;
-  notes?: string;
-  google_place_id?: string;
-  place_id?: string;
-  [k: string]: unknown;
-};
+type Candidate = Record<string, unknown>;
+
+function parseCandidates(body: Record<string, unknown>): Candidate[] {
+  if (Array.isArray(body.candidates)) return body.candidates as Candidate[];
+  if (Array.isArray(body.places)) return body.places as Candidate[];
+  if (Array.isArray(body.local_results)) return body.local_results as Candidate[];
+
+  const pj = body.places_json;
+  if (Array.isArray(pj)) return pj as Candidate[];
+  if (pj && typeof pj === "object") return [pj as Candidate];
+  if (typeof pj === "string" && pj.trim()) {
+    const cleaned = pj
+      .trim()
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/, "")
+      .replace(/```\s*$/, "")
+      .trim();
+    try {
+      const parsed = JSON.parse(cleaned);
+      if (Array.isArray(parsed)) return parsed as Candidate[];
+      if (parsed && typeof parsed === "object") return [parsed as Candidate];
+    } catch {
+      /* fall through */
+    }
+  }
+
+  if (
+    body.place_name ||
+    body.name ||
+    body.phone_number ||
+    body.phone ||
+    body.formatted_address ||
+    body.address
+  ) {
+    return [body as Candidate];
+  }
+
+  return [];
+}
+
+function pickString(c: Candidate, ...keys: string[]): string | null {
+  for (const k of keys) {
+    const v = c[k];
+    if (typeof v === "string" && v.trim()) return v;
+    if (typeof v === "number") return String(v);
+  }
+  return null;
+}
+
+function pickNumber(c: Candidate, ...keys: string[]): number | null {
+  for (const k of keys) {
+    const v = c[k];
+    if (v === null || v === undefined || v === "") continue;
+    const n = typeof v === "number" ? v : Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function pickInt(c: Candidate, ...keys: string[]): number | null {
+  const n = pickNumber(c, ...keys);
+  return n === null ? null : Math.trunc(n);
+}
 
 function normalize(c: Candidate, topic: string, agent: string) {
   return {
     agent_name: agent || null,
     topic: topic || null,
-    place_name: c.place_name ?? c.name ?? null,
-    phone_number: c.phone_number ?? c.phone ?? null,
-    company_type: c.company_type ?? c.category ?? c.type ?? null,
-    address: c.address ?? c.formatted_address ?? null,
-    website: (c.website as string | undefined) ?? null,
-    email: (c.email as string | undefined) ?? null,
-    rating: c.rating !== undefined ? Number(c.rating) || null : null,
-    review_count:
-      c.review_count !== undefined
-        ? Number(c.review_count) || null
-        : c.user_ratings_total !== undefined
-          ? Number(c.user_ratings_total) || null
-          : null,
-    hours: (c.hours as string | undefined) ?? (c.opening_hours as string | undefined) ?? null,
-    description: (c.description as string | undefined) ?? null,
-    sales_notes: (c.sales_notes as string | undefined) ?? (c.notes as string | undefined) ?? null,
-    google_place_id: (c.google_place_id as string | undefined) ?? (c.place_id as string | undefined) ?? null,
-    raw: c,
+    place_name: pickString(c, "place_name", "name", "title"),
+    phone_number: pickString(c, "phone_number", "phone", "international_phone_number"),
+    company_type: pickString(c, "company_type", "category", "type", "types"),
+    address: pickString(c, "address", "formatted_address", "vicinity"),
+    website: pickString(c, "website", "url"),
+    email: pickString(c, "email"),
+    rating: pickNumber(c, "rating"),
+    review_count: pickInt(c, "review_count", "reviews_count", "user_ratings_total", "reviews"),
+    hours: pickString(c, "hours", "opening_hours"),
+    description: pickString(c, "description", "snippet", "about"),
+    sales_notes: pickString(c, "sales_notes", "notes"),
+    google_place_id: pickString(c, "google_place_id", "place_id", "google_maps_url"),
+    raw: c && typeof c === "object" ? c : { value: c },
   };
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
+  const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
-  const topic = (body.topic as string | undefined) ?? "";
-  const agent = (body.agent as string | undefined) ?? "";
+  const topic = typeof body.topic === "string" ? body.topic : "";
+  const agent = typeof body.agent === "string" ? body.agent : "";
 
-  let candidates: Candidate[] = [];
+  const candidates = parseCandidates(body);
 
-  if (Array.isArray(body.candidates)) {
-    candidates = body.candidates as Candidate[];
-  } else if (Array.isArray(body.places)) {
-    candidates = body.places as Candidate[];
-  } else if (typeof body.places_json === "string") {
-    try {
-      const parsed = JSON.parse(body.places_json);
-      if (Array.isArray(parsed)) candidates = parsed as Candidate[];
-    } catch {
-      /* ignore */
-    }
-  }
+  console.log("[research/agent/callback] received", {
+    keys: Object.keys(body),
+    topic,
+    agent,
+    candidate_count: candidates.length,
+  });
 
-  if (candidates.length === 0 && (body.place_name || body.name || body.phone_number || body.phone)) {
-    candidates = [body as Candidate];
-  }
+  const supabase = getServerSupabase();
 
   if (candidates.length === 0) {
-    return NextResponse.json(
-      { ok: false, error: "no candidates found in payload", received_keys: Object.keys(body) },
-      { status: 400 },
-    );
+    // Store a single debug row so nothing gets lost, still return 200.
+    const debugRow = {
+      agent_name: agent || null,
+      topic: topic || null,
+      place_name: null,
+      phone_number: null,
+      company_type: null,
+      address: null,
+      website: null,
+      email: null,
+      rating: null,
+      review_count: null,
+      hours: null,
+      description: null,
+      sales_notes: "debug: no candidates parsed from payload",
+      google_place_id: null,
+      raw: body,
+    };
+    const { error: debugErr } = await supabase
+      .from("googlemaps_candidates")
+      .insert(debugRow);
+    if (debugErr) console.error("debug insert failed", debugErr);
+    return NextResponse.json({
+      ok: false,
+      inserted: 0,
+      reason: "no candidates found in payload",
+      received_keys: Object.keys(body),
+    });
   }
 
   const rows = candidates.map((c) => normalize(c, topic, agent));
 
-  const supabase = getServerSupabase();
   const { error } = await supabase.from("googlemaps_candidates").insert(rows);
 
   if (error) {
     console.error("googlemaps_candidates insert failed", error);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    return NextResponse.json({
+      ok: false,
+      inserted: 0,
+      error: error.message,
+      hint: error.hint ?? null,
+      code: error.code ?? null,
+    });
   }
 
   return NextResponse.json({ ok: true, inserted: rows.length });
