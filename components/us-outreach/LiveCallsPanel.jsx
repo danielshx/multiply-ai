@@ -8,8 +8,15 @@ import { Pill, Dot } from '@/components/multiply/ui';
  * live calls and the last thing said on each, refreshed every ~2s via
  * Realtime + server-side sync polling.
  */
+const STALE_MS = 3 * 60 * 1000; // 3 min — after this, don't show as "live"
+
 export function LiveCallsPanel({ calls, onOpen }) {
-  const live = calls.filter((c) => c.status === 'live' || c.status === 'triggered');
+  const now = Date.now();
+  const live = calls.filter((c) => {
+    if (c.status !== 'live' && c.status !== 'triggered') return false;
+    const age = now - new Date(c.created_at ?? 0).getTime();
+    return age < STALE_MS;
+  });
   if (live.length === 0) return null;
 
   return (

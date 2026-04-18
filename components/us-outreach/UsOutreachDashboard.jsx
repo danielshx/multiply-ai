@@ -24,6 +24,9 @@ export default function UsOutreachDashboard() {
     const sb = getBrowserSupabase();
     let cancelled = false;
 
+    // Auto-cleanup: resolve any "live" rows stuck >5min before loading.
+    fetch('/api/us-outreach/cleanup', { method: 'POST' }).catch(() => null);
+
     sb.from('us_outreach_calls')
       .select('*')
       .order('created_at', { ascending: false })
