@@ -7,13 +7,13 @@
 **🏆 Built for:** HappyRobot × TUM.ai Makeathon 2026 — Challenge: *Build an Autonomous AI Sales Product*
 
 <p align="center">
-  <a href="https://raw.githubusercontent.com/danielshx/Multiply/main/public/readme/multiply-promo.mp4">
+  <a href="https://github.com/danielshx/Multiply/raw/main/public/readme/multiply-promo.mp4">
     <img src="public/readme/multiply-promo.gif" alt="Multiply — 30-second cinematic promo (click for full-quality MP4)" width="880" />
   </a>
   <br/>
   <sub>
     🎬 <b>The 30-second cinematic promo.</b>
-    <a href="https://raw.githubusercontent.com/danielshx/Multiply/main/public/readme/multiply-promo.mp4">▶ watch in full HD (MP4)</a>
+    <a href="https://github.com/danielshx/Multiply/raw/main/public/readme/multiply-promo.mp4">▶ watch in full HD (MP4)</a>
     · <a href="https://multiply-danielshxs-projects.vercel.app/">open live demo</a>
   </sub>
 </p>
