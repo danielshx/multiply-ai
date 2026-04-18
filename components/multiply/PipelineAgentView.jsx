@@ -6,6 +6,13 @@ const STAGE_AGENT_DATA = {
   Detected: {
     agents: [
       {
+        name: 'Candidate Finder',
+        count: 1,
+        instances: [
+          { target: 'Google Maps Research', task: 'Searching LinkedIn for local Bike stores', started: 7, status: 'active', score: 82 },
+        ],
+      },
+      {
         name: 'Signal Hunter',
         count: 3,
         instances: [
@@ -131,16 +138,44 @@ function InstanceRow({ target, task, started, status, score }) {
   );
 }
 
-function SpawnModal({ agentName, onClose }) {
+function SpawnModal({ agentName, stage, onClose }) {
   const [name, setName] = useState(`${agentName} #${Math.floor(Math.random() * 3) + 2}`);
   const [goal, setGoal] = useState('');
   const [channel, setChannel] = useState('Voice');
   const [industry, setIndustry] = useState('');
-  const [spawned, setSpawned] = useState(false);
+  const [status, setStatus] = useState('idle'); // idle | loading | success | error
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const handleSpawn = () => {
-    setSpawned(true);
-    setTimeout(onClose, 1300);
+  const isFinder = agentName === 'Candidate Finder';
+  const isDetected = stage === 'Detected' && isFinder;
+
+  const handleSpawn = async () => {
+    if (isDetected) {
+      const task = [goal.trim(), industry.trim() && `Target industry: ${industry.trim()}`]
+        .filter(Boolean)
+        .join('. ') || `Research potential leads${industry ? ` in ${industry}` : ''}`;
+
+      setStatus('loading');
+      try {
+        const res = await fetch('/api/research/maps', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        setStatus('success');
+        setTimeout(onClose, 1600);
+      } catch (err) {
+        setErrorMsg(err.message);
+        setStatus('error');
+      }
+    } else {
+      setStatus('success');
+      setTimeout(onClose, 1300);
+    }
   };
 
   return (
@@ -156,7 +191,9 @@ function SpawnModal({ agentName, onClose }) {
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>Spawn new agent</div>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>Type: {agentName}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+              Type: {agentName}{isFinder && <span style={{ marginLeft: 6, color: 'var(--accent)', fontWeight: 500 }}>· triggers Google Maps research</span>}
+            </div>
           </div>
           <button onClick={onClose} style={{ fontSize: 18, color: 'var(--text-quaternary)', lineHeight: 1, padding: '2px 6px', borderRadius: 'var(--radius-sm)', transition: 'all 120ms' }}
             onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
@@ -189,10 +226,15 @@ function SpawnModal({ agentName, onClose }) {
           </Field>
         </div>
 
+        {status === 'error' && (
+          <div style={{ padding: '8px 20px', background: 'var(--danger-soft)', borderTop: '1px solid var(--danger-border)', fontSize: 12, color: 'var(--danger)' }}>
+            {errorMsg}
+          </div>
+        )}
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Button variant="default" size="sm" onClick={onClose}>Cancel</Button>
-          <Button variant="accent" size="sm" onClick={handleSpawn} disabled={spawned}>
-            {spawned ? '✓ Spawning…' : 'Spawn agent'}
+          <Button variant="default" size="sm" onClick={onClose} disabled={status === 'loading'}>Cancel</Button>
+          <Button variant="accent" size="sm" onClick={handleSpawn} disabled={status === 'loading' || status === 'success'}>
+            {status === 'loading' ? 'Starting…' : status === 'success' ? '✓ Launched' : isDetected ? 'Spawn + research' : 'Spawn agent'}
           </Button>
         </div>
       </div>
@@ -216,7 +258,7 @@ const inputStyle = {
   fontFamily: 'var(--sans)', boxSizing: 'border-box',
 };
 
-function AgentCard({ agent }) {
+function AgentCard({ agent, stage }) {
   const [spawnModal, setSpawnModal] = useState(false);
 
   return (
@@ -244,7 +286,7 @@ function AgentCard({ agent }) {
         ))}
       </div>
 
-      {spawnModal && <SpawnModal agentName={agent.name} onClose={() => setSpawnModal(false)} />}
+      {spawnModal && <SpawnModal agentName={agent.name} stage={stage} onClose={() => setSpawnModal(false)} />}
     </div>
   );
 }
@@ -281,7 +323,7 @@ export function PipelineAgentView({ stage }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {data.agents.map(agent => (
-            <AgentCard key={agent.name} agent={agent} />
+            <AgentCard key={agent.name} agent={agent} stage={stage} />
           ))}
         </div>
       )}
