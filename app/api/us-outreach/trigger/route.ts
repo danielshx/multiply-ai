@@ -47,7 +47,7 @@ function languageFor(phone: string, name: string) {
       language: "de",
       language_name: "Deutsch",
       greeting_word: "Hallo",
-      initial_line: `Hallo ${firstName}, hier ist Alex von der AI Academy — hast du kurz eine Sekunde?`,
+      initial_line: `Hallo ${firstName}, hier ist Alex von der Yale University — hast du kurz eine Sekunde?`,
       from_number_id: FROM_NUMBER_DE,
       from_number_display: FROM_NUMBER_DE_DISPLAY,
     };
@@ -55,8 +55,8 @@ function languageFor(phone: string, name: string) {
   return {
     language: "en",
     language_name: "English",
-    greeting_word: "Hey",
-    initial_line: `Hey ${firstName}, this is Alex from the AI Academy — got a quick second?`,
+    greeting_word: "Hi",
+    initial_line: `Hi ${firstName}, this is Alex from Yale University, calling from the US — do you have a quick second?`,
     from_number_id: FROM_NUMBER_US,
     from_number_display: FROM_NUMBER_US_DISPLAY,
   };

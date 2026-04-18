@@ -70,13 +70,37 @@ export function MetricsPanel({ calls, messageCounts = {}, commission }) {
           />
         </div>
 
-        {/* Row 3 — breakdowns */}
+        {/* Row 3 — outcome tiles (rejected / voicemail / no-answer / ...) */}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            gap: 10,
+          }}
+        >
+          {Object.entries(OUTCOME_META).map(([key, meta]) => {
+            const count = m.outcomeCount(key);
+            if (count === 0) return null;
+            return (
+              <OutcomeTile
+                key={key}
+                emoji={meta.emoji}
+                label={meta.label}
+                count={count}
+                pct={m.placed > 0 ? Math.round((count / m.placed) * 100) : 0}
+                color={meta.color}
+              />
+            );
+          })}
+        </div>
+
+        {/* Row 4 — breakdowns */}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 16 }}>
-          <Breakdown label="Disposition" items={m.byDisposition} total={m.placed} />
+          <Breakdown label="Outcome" items={m.byOutcome} total={m.placed} />
           <Breakdown label="Country" items={m.byCountry} total={m.placed} />
         </div>
 
-        {/* Row 4 — failure reasons if any */}
+        {/* Row 5 — failure reasons if any */}
         {m.failedReasons.length > 0 && (
           <Breakdown label="Failure reasons" items={m.failedReasons} total={m.failed} compact />
         )}
@@ -84,6 +108,49 @@ export function MetricsPanel({ calls, messageCounts = {}, commission }) {
     </Panel>
   );
 }
+
+// Categorize every call into a single outcome bucket. Uses disposition when
+// the agent recorded one, falls back to heuristics (status + message count +
+// duration) when not.
+function outcomeOf(call, msgCount) {
+  const d = call.disposition;
+  if (d === 'closed') return 'closed';
+  if (d === 'interested_no_sms') return 'interested';
+  if (d === 'callback') return 'callback';
+  if (d === 'not_interested') return 'rejected';
+  if (d === 'voicemail') return 'voicemail';
+  if (d === 'invalid') return 'invalid';
+
+  const status = call.status;
+  const reason = (call.reason ?? '').toLowerCase();
+  if (status === 'failed') {
+    if (reason.includes('canceled')) return 'canceled';
+    if (reason.includes('busy')) return 'busy';
+    if (reason.includes('voicemail')) return 'voicemail';
+    if (reason.includes('invalid')) return 'invalid';
+    return 'failed';
+  }
+  if (status === 'live' || status === 'triggered') return 'in-progress';
+  // status = completed, no disposition — likely voicemail, hang-up, or very short
+  if (msgCount === 0) return 'no-answer';
+  if (msgCount < 3) return 'voicemail';
+  return 'no-disposition';
+}
+
+const OUTCOME_META = {
+  closed: { label: 'Closed', color: 'success', emoji: '💰' },
+  interested: { label: 'Interested', color: 'accent', emoji: '🤔' },
+  callback: { label: 'Callback', color: 'warning', emoji: '⏰' },
+  rejected: { label: 'Rejected', color: 'danger', emoji: '👎' },
+  voicemail: { label: 'Voicemail', color: 'info', emoji: '📞' },
+  'no-answer': { label: 'No answer', color: 'neutral', emoji: '📵' },
+  canceled: { label: 'Canceled', color: 'neutral', emoji: '✂️' },
+  busy: { label: 'Busy', color: 'neutral', emoji: '📵' },
+  invalid: { label: 'Invalid', color: 'danger', emoji: '⚠️' },
+  failed: { label: 'Failed', color: 'danger', emoji: '❌' },
+  'in-progress': { label: 'In progress', color: 'info', emoji: '🎙️' },
+  'no-disposition': { label: 'No disposition', color: 'neutral', emoji: '—' },
+};
 
 function computeMetrics(calls, messageCounts, commission) {
   const placed = calls.length;
@@ -121,16 +188,17 @@ function computeMetrics(calls, messageCounts, commission) {
   const connectRate = placed > 0 ? (connected / placed) * 100 : null;
   const closeRate = connected > 0 ? (closed / connected) * 100 : null;
 
-  // Breakdowns
-  const byDisposition = tally(
-    calls,
-    (c) => c.disposition || 'no_disposition',
-  );
+  // Breakdowns — outcome is the new headline dimension
+  const byOutcome = tally(calls, (c) => outcomeOf(c, messageCounts[c.id] ?? 0));
   const byCountry = tally(calls, (c) => c.country_code || codeFromPhone(c.phone_number));
   const failedReasons = tally(
     calls.filter((c) => c.status === 'failed'),
     (c) => (c.reason ?? 'unknown').slice(0, 60),
   );
+
+  // Per-outcome counts for the headline tile row
+  const outcomeCount = (key) =>
+    calls.filter((c) => outcomeOf(c, messageCounts[c.id] ?? 0) === key).length;
 
   return {
     placed,
@@ -146,9 +214,10 @@ function computeMetrics(calls, messageCounts, commission) {
     totalMessages,
     avgMessages,
     avgTimeToCloseSec,
-    byDisposition,
+    byOutcome,
     byCountry,
     failedReasons,
+    outcomeCount,
   };
 }
 
@@ -170,6 +239,58 @@ function codeFromPhone(phone) {
   const cc = m[1];
   const map = { 1: 'US', 49: 'DE', 43: 'AT', 41: 'CH', 44: 'GB', 33: 'FR' };
   return map[cc] ?? `+${cc}`;
+}
+
+function OutcomeTile({ emoji, label, count, pct, color }) {
+  const borders = {
+    success: 'var(--success-border)',
+    accent: 'var(--accent-border)',
+    warning: 'var(--warning-border)',
+    danger: 'var(--danger-border)',
+    info: 'var(--info-border)',
+    neutral: 'var(--border)',
+  };
+  const colors = {
+    success: 'var(--success)',
+    accent: 'var(--accent)',
+    warning: 'var(--warning)',
+    danger: 'var(--danger)',
+    info: 'var(--info)',
+    neutral: 'var(--text)',
+  };
+  return (
+    <div
+      style={{
+        background: 'var(--surface)',
+        border: `1px solid ${borders[color]}`,
+        borderRadius: 'var(--radius-md)',
+        padding: '10px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 2,
+      }}
+    >
+      <div style={{ fontSize: 10, color: 'var(--text-tertiary)', letterSpacing: 0.4, textTransform: 'uppercase' }}>
+        {emoji} {label}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <span
+          style={{
+            fontSize: 20,
+            fontWeight: 500,
+            color: colors[color],
+            fontFamily: 'var(--mono)',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        >
+          {count}
+        </span>
+        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>
+          {pct}%
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function Kpi({ label, value, accent = 'neutral', mono }) {

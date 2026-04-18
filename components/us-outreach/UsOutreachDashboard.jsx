@@ -139,22 +139,7 @@ export default function UsOutreachDashboard() {
     };
   }, [calls.map((c) => `${c.id}:${c.status}`).join(',')]);
 
-  // Auto-open drawer when a new live call starts (so the user sees the live
-  // transcript without having to click). Only auto-opens each call once.
-  useEffect(() => {
-    const fresh = calls.find(
-      (c) =>
-        (c.status === 'live' || c.status === 'triggered') &&
-        !autoOpenedIds.has(c.id),
-    );
-    if (!fresh) return;
-    setAutoOpenedIds((prev) => {
-      const n = new Set(prev);
-      n.add(fresh.id);
-      return n;
-    });
-    if (!openCallId) setOpenCallId(fresh.id);
-  }, [calls, openCallId, autoOpenedIds]);
+  // Drawer only opens on explicit click. Auto-open removed.
 
   const stats = useMemo(() => {
     const placed = calls.length;

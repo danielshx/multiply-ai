@@ -15,7 +15,7 @@ const COURSE_URL =
   "https://www.deeplearning.ai/short-courses/";
 
 const BRAND =
-  process.env.COURSE_BRAND ?? "AI Academy";
+  process.env.COURSE_BRAND ?? "Yale University";
 
 export const AFFILIATE = {
   productName: `${BRAND} — Free AI Course`,
