@@ -1,0 +1,67 @@
+services:
+  cognee:
+    image: cognee/cognee:latest
+    container_name: multiply-cognee
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_PROVIDER: openai
+      LLM_MODEL: gpt-4o-mini
+      LLM_API_KEY: ${COGNEE_LLM_API_KEY}
+      EMBEDDING_PROVIDER: openai
+      EMBEDDING_MODEL: text-embedding-3-small
+      EMBEDDING_API_KEY: ${COGNEE_LLM_API_KEY}
+      VECTOR_DB_PROVIDER: pgvector
+      VECTOR_DB_URL: postgresql+asyncpg://cognee:multiplydemo@cognee-pg:5432/cognee_db
+      GRAPH_DATABASE_PROVIDER: neo4j
+      GRAPH_DATABASE_URL: bolt://cognee-neo4j:7687
+      GRAPH_DATABASE_USERNAME: neo4j
+      GRAPH_DATABASE_PASSWORD: multiplydemo
+      DB_PROVIDER: postgres
+      DB_HOST: cognee-pg
+      DB_PORT: "5432"
+      DB_NAME: cognee_db
+      DB_USERNAME: cognee
+      DB_PASSWORD: multiplydemo
+    depends_on:
+      cognee-neo4j:
+        condition: service_healthy
+      cognee-pg:
+        condition: service_healthy
+    restart: unless-stopped
+
+  cognee-neo4j:
+    image: neo4j:5
+    container_name: multiply-cognee-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/multiplydemo
+      NEO4J_PLUGINS: '["apoc"]'
+    volumes:
+      - cognee-neo4j-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-O", "/dev/null", "-q", "http://localhost:7474"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  cognee-pg:
+    image: pgvector/pgvector:pg16
+    container_name: multiply-cognee-pg
+    environment:
+      POSTGRES_USER: cognee
+      POSTGRES_PASSWORD: multiplydemo
+      POSTGRES_DB: cognee_db
+    volumes:
+      - cognee-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cognee -d cognee_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  cognee-neo4j-data:
+  cognee-pg-data:

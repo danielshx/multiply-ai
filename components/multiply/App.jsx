@@ -6,6 +6,7 @@ import { AgentDeployment } from './AgentDeployment';
 import { Dashboard } from './Dashboard';
 import { LiveCall } from './LiveCall';
 import { AgentTrace } from './AgentTrace';
+import { KnowledgeGraph } from './KnowledgeGraph';
 import { Wordmark, Dot, Button, Kbd, IconSearch } from './ui';
 
 const STAGE = { INTRO: 'intro', ONBOARDING: 'onboarding', DEPLOYING: 'deploying', APP: 'app' };
@@ -118,6 +119,7 @@ export default function App() {
             />
           )}
           {view === 'trace' && <AgentTrace />}
+          {view === 'graph' && <KnowledgeGraph />}
         </main>
       </div>
 
@@ -159,8 +161,8 @@ function TopBar({ view, setView, agentsPaused, onTogglePause, signalCount, compa
       <div style={{ display: 'flex', gap: 2 }}>
         <TabButton active={view === 'dashboard'} onClick={() => setView('dashboard')}>Pipeline</TabButton>
         <TabButton active={view === 'trace'} onClick={() => setView('trace')}>Agent trace</TabButton>
+        <TabButton active={view === 'graph'} onClick={() => setView('graph')}>Knowledge graph</TabButton>
         <TabButton active={false} onClick={() => {}}>Playbooks</TabButton>
-        <TabButton active={false} onClick={() => {}}>Signals</TabButton>
       </div>
 
       <div style={{ flex: 1 }} />
