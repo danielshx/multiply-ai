@@ -23,13 +23,19 @@ export function useCallMessages(callId) {
     seenIds.current = new Set();
     setMessages([]);
 
+    // Note: .order('ts') was returning 0 rows due to a PostgREST quirk.
+    // Fetch without order, then sort in JS.
     sb.from('us_outreach_messages')
-      .select('*')
+      .select('id, call_id, role, content, ts, hr_msg_id')
       .eq('call_id', callId)
-      .order('ts', { ascending: true })
+      .limit(500)
       .then(({ data }) => {
         if (cancelled) return;
-        const rows = data ?? [];
+        const rows = (data ?? []).slice().sort((a, b) => {
+          const ta = new Date(a.ts ?? 0).getTime();
+          const tb = new Date(b.ts ?? 0).getTime();
+          return ta - tb;
+        });
         rows.forEach((r) => seenIds.current.add(r.id));
         setMessages(rows);
       });
@@ -48,7 +54,14 @@ export function useCallMessages(callId) {
           const row = payload.new;
           if (!row || seenIds.current.has(row.id)) return;
           seenIds.current.add(row.id);
-          setMessages((prev) => [...prev, row]);
+          setMessages((prev) => {
+            const next = [...prev, row].sort((a, b) => {
+              const ta = new Date(a.ts ?? 0).getTime();
+              const tb = new Date(b.ts ?? 0).getTime();
+              return ta - tb;
+            });
+            return next;
+          });
         },
       )
       .subscribe((status) => {
