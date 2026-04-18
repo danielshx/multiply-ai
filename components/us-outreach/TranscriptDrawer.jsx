@@ -1,11 +1,47 @@
 'use client';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Drawer, Pill, Dot, IconExternal, IconLink } from '@/components/multiply/ui';
 import { useCallMessages } from './useCallMessages';
 
 export function TranscriptDrawer({ call, onClose }) {
   const open = !!call;
   const { messages, connected } = useCallMessages(open ? call?.id : null);
+  const [syncing, setSyncing] = useState(false);
+  const [canceling, setCanceling] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  async function syncNow() {
+    if (!call || syncing) return;
+    setSyncing(true);
+    try {
+      const r = await fetch(`/api/us-outreach/sync/${call.id}`).then((x) => x.json());
+      setToast({ kind: 'ok', text: `Synced · ${r.synced_messages ?? 0} new messages` });
+    } catch (e) {
+      setToast({ kind: 'err', text: e.message });
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setToast(null), 3500);
+    }
+  }
+
+  async function cancelCall() {
+    if (!call || canceling) return;
+    if (!confirm(`Cancel call to ${call.contact_name || call.phone_number}?`)) return;
+    setCanceling(true);
+    try {
+      const r = await fetch(`/api/us-outreach/cancel/${call.id}`, { method: 'POST' }).then((x) =>
+        x.json(),
+      );
+      setToast({ kind: 'ok', text: r.hr_error ? `Marked canceled locally (HR: ${r.hr_error})` : 'Call canceled.' });
+    } catch (e) {
+      setToast({ kind: 'err', text: e.message });
+    } finally {
+      setCanceling(false);
+      setTimeout(() => setToast(null), 4000);
+    }
+  }
+
+  const isLive = call?.status === 'live' || call?.status === 'triggered';
 
   return (
     <Drawer
@@ -13,11 +49,65 @@ export function TranscriptDrawer({ call, onClose }) {
       onClose={onClose}
       title={call?.contact_name || 'Call'}
       subtitle={call ? `${call.phone_number} · ${call.status}` : ''}
-      width={580}
+      width={620}
     >
       {call && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
           <LiveBadge call={call} connected={connected} count={messages.length} />
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={syncNow}
+              disabled={syncing}
+              style={{
+                fontSize: 11,
+                fontFamily: 'var(--mono)',
+                padding: '5px 10px',
+                background: 'var(--surface)',
+                border: '1px solid var(--border-strong)',
+                borderRadius: 'var(--radius-sm)',
+                color: syncing ? 'var(--text-tertiary)' : 'var(--text)',
+                cursor: syncing ? 'default' : 'pointer',
+              }}
+            >
+              {syncing ? 'syncing…' : '↻ sync from HR'}
+            </button>
+            {isLive && (
+              <button
+                onClick={cancelCall}
+                disabled={canceling}
+                style={{
+                  fontSize: 11,
+                  fontFamily: 'var(--mono)',
+                  padding: '5px 10px',
+                  background: 'var(--danger-soft)',
+                  border: '1px solid var(--danger-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--danger)',
+                  cursor: canceling ? 'default' : 'pointer',
+                }}
+              >
+                {canceling ? 'canceling…' : '✕ cancel call'}
+              </button>
+            )}
+          </div>
+
+          {toast && (
+            <div
+              style={{
+                fontSize: 11,
+                padding: '6px 10px',
+                borderRadius: 'var(--radius-sm)',
+                background: toast.kind === 'ok' ? 'var(--success-soft)' : 'var(--danger-soft)',
+                color: toast.kind === 'ok' ? 'var(--success)' : 'var(--danger)',
+                border: `1px solid ${
+                  toast.kind === 'ok' ? 'var(--success-border)' : 'var(--danger-border)'
+                }`,
+              }}
+            >
+              {toast.text}
+            </div>
+          )}
 
           <Section label="Transcript" right={
             messages.length > 0 ? (
@@ -26,7 +116,12 @@ export function TranscriptDrawer({ call, onClose }) {
               </span>
             ) : null
           }>
-            <Transcript messages={messages} status={call.status} />
+            <Transcript
+              messages={messages}
+              status={call.status}
+              onSync={syncNow}
+              syncing={syncing}
+            />
           </Section>
 
           <Section label="Disposition">
@@ -119,7 +214,7 @@ function LiveBadge({ call, connected, count }) {
   return null;
 }
 
-function Transcript({ messages, status }) {
+function Transcript({ messages, status, onSync, syncing }) {
   const scrollRef = useRef(null);
   useEffect(() => {
     if (scrollRef.current) {
@@ -137,9 +232,26 @@ function Transcript({ messages, status }) {
         color: 'var(--text-tertiary)',
         fontSize: 12,
       }}>
-        {status === 'live' ? 'Waiting for first message…' :
-         status === 'triggered' ? 'Call ringing — transcript will appear once they pick up.' :
-         'No transcript captured.'}
+        {status === 'live' || status === 'triggered'
+          ? 'Waiting for first message…'
+          : 'No transcript in our DB yet.'}
+        <div style={{ marginTop: 10 }}>
+          <button
+            onClick={onSync}
+            disabled={syncing}
+            style={{
+              fontSize: 11,
+              fontFamily: 'var(--mono)',
+              padding: '5px 10px',
+              background: 'var(--surface)',
+              border: '1px solid var(--border-strong)',
+              borderRadius: 'var(--radius-sm)',
+              cursor: syncing ? 'default' : 'pointer',
+            }}
+          >
+            {syncing ? 'pulling…' : 'Pull from HR now'}
+          </button>
+        </div>
       </div>
     );
   }
