@@ -2,12 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { Dot, Pill, Button } from './ui';
 
-/**
- * Cognee Intelligence Showcase Panel.
- * Lives in the Knowledge Graph tab. Shows graph stats, entity breakdown,
- * and a live "Ask the graph" playground the jury can poke at.
- */
-export function CogneeIntelligence() {
+export function CogneeIntelligence({ onResultsHighlight }) {
   const [stats, setStats] = useState(null);
   const [askQuery, setAskQuery] = useState('');
   const [asking, setAsking] = useState(false);
@@ -16,11 +11,13 @@ export function CogneeIntelligence() {
 
   const loadStats = async () => {
     try {
-      const res = await fetch('/api/cognee/seed', { method: 'POST', body: '{}' });
+      const res = await fetch('/api/cognee/stats', { cache: 'no-store' });
       const d = await res.json();
       setStats(d);
     } catch {}
   };
+
+  useEffect(() => { loadStats(); }, []);
 
   const ask = async (q) => {
     const query = q ?? askQuery;
@@ -28,7 +25,7 @@ export function CogneeIntelligence() {
     setAsking(true);
     setAnswer(null);
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 30_000);
+    const timer = setTimeout(() => ctrl.abort(), 8_000);
     try {
       const res = await fetch('/api/cognee/recall', {
         method: 'POST',
@@ -37,13 +34,23 @@ export function CogneeIntelligence() {
         signal: ctrl.signal,
       });
       const data = await res.json();
-      setAnswer(data);
+      if (!data?.results?.length) {
+        const fallback = await deriveFallback(query);
+        setAnswer({ ...fallback, fallback: true, reason: 'cognee returned no hits — showing seed-derived answer' });
+      } else {
+        setAnswer(data);
+      }
+      onResultsHighlight?.(query);
     } catch (e) {
+      const fallback = await deriveFallback(query);
       setAnswer({
-        error: e.name === 'AbortError'
-          ? 'Graph is still cognifying after the last seed. Try again in 60s — CHUNKS search becomes sub-second once the graph settles.'
-          : e.message,
+        ...fallback,
+        fallback: true,
+        reason: e.name === 'AbortError'
+          ? 'cognee timed out — showing seed-derived answer'
+          : `cognee error: ${e.message}`,
       });
+      onResultsHighlight?.(query);
     } finally {
       clearTimeout(timer);
       setAsking(false);
@@ -53,13 +60,12 @@ export function CogneeIntelligence() {
   const forceReseed = async () => {
     setSeeding(true);
     try {
-      const res = await fetch('/api/cognee/seed', {
+      await fetch('/api/cognee/seed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reset: true }),
       });
-      const d = await res.json();
-      setStats(d);
+      await loadStats();
     } finally {
       setSeeding(false);
     }
@@ -105,6 +111,11 @@ export function CogneeIntelligence() {
               Cognee Intelligence
             </h3>
             <Pill size="xs" color="purple">Knowledge Graph</Pill>
+            {stats && (
+              <Pill size="xs" color={stats.cogneeReachable ? 'success' : 'warning'}>
+                {stats.cogneeReachable ? 'cognee live' : 'cognee offline'}
+              </Pill>
+            )}
           </div>
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
             Every call, dossier, and rebuttal pattern lives here. The graph grows with each conversation — ask it anything.
@@ -118,7 +129,6 @@ export function CogneeIntelligence() {
         </div>
       </div>
 
-      {/* Stats strip */}
       {stats && (
         <div style={{
           display: 'grid',
@@ -127,17 +137,16 @@ export function CogneeIntelligence() {
           marginBottom: 16,
           position: 'relative',
         }}>
-          <StatBadge label="Prior calls"       value={dist.prior_calls ?? 0}        color="success" />
-          <StatBadge label="Personas"          value={dist.personas ?? 0}           color="purple" />
-          <StatBadge label="Rebuttals"         value={dist.rebuttal_patterns ?? 0}  color="accent" />
-          <StatBadge label="Industries"        value={dist.industry_playbooks ?? 0} color="info" />
-          <StatBadge label="Temporal"          value={dist.temporal_patterns ?? 0}  color="warning" />
-          <StatBadge label="Journeys"          value={dist.journeys ?? 0}           color="accent" />
-          <StatBadge label="Total"             value={stats.total ?? 0}             color="neutral" emphasis />
+          <StatBadge label="Prior calls"  value={dist.prior_calls ?? 0}        color="success" />
+          <StatBadge label="Personas"     value={dist.personas ?? 0}           color="purple" />
+          <StatBadge label="Rebuttals"    value={dist.rebuttal_patterns ?? 0}  color="accent" />
+          <StatBadge label="Industries"   value={dist.industry_playbooks ?? 0} color="info" />
+          <StatBadge label="Temporal"     value={dist.temporal_patterns ?? 0}  color="warning" />
+          <StatBadge label="Journeys"     value={dist.journeys ?? 0}           color="accent" />
+          <StatBadge label="Total"        value={stats.total ?? 0}             color="neutral" emphasis />
         </div>
       )}
 
-      {/* Ask the graph */}
       <div style={{
         background: 'var(--surface)',
         border: '1px solid var(--border-strong)',
@@ -196,15 +205,16 @@ export function CogneeIntelligence() {
 
         {answer && (
           <div style={{ marginTop: 10 }}>
-            {answer.error ? (
+            {answer.fallback && (
               <div style={{
-                padding: 10, fontSize: 11, color: 'var(--danger)',
-                background: 'var(--danger-soft)', border: '1px solid var(--danger-border)',
-                borderRadius: 'var(--radius-sm)', fontFamily: 'var(--mono)',
+                padding: 8, fontSize: 10, color: 'var(--warning)',
+                background: 'var(--warning-soft)', border: '1px solid var(--warning-border)',
+                borderRadius: 'var(--radius-sm)', fontFamily: 'var(--mono)', marginBottom: 8,
               }}>
-                {answer.error}
+                ⚠ {answer.reason}
               </div>
-            ) : answer.results?.length > 0 ? (
+            )}
+            {answer.results?.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {answer.results.slice(0, 3).map((r, i) => (
                   <div key={i} style={{
@@ -221,7 +231,7 @@ export function CogneeIntelligence() {
                         color: i === 0 ? 'var(--accent-text)' : 'var(--text-tertiary)',
                         textTransform: 'uppercase', letterSpacing: 1, fontWeight: 500,
                       }}>
-                        {i === 0 ? '✨ Graph synthesis · top answer' : `Supporting hit ${i + 1}`}
+                        {i === 0 ? '✨ Top answer' : `Supporting hit ${i + 1}`}
                       </span>
                     </div>
                     {r.text}
@@ -230,7 +240,7 @@ export function CogneeIntelligence() {
               </div>
             ) : (
               <div style={{ padding: 10, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>
-                No matches — graph might still be cognifying (wait 30s after reseed).
+                No matches — try a broader query.
               </div>
             )}
           </div>
@@ -238,6 +248,35 @@ export function CogneeIntelligence() {
       </div>
     </div>
   );
+}
+
+async function deriveFallback(query) {
+  try {
+    const res = await fetch('/api/cognee/graph-data?source=derived', { cache: 'no-store' });
+    const g = await res.json();
+    const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter(t => t.length > 2);
+    if (!tokens.length || !g?.nodes) return { results: [] };
+    const scored = g.nodes.map(n => {
+      const hay = `${n.label} ${n.id} ${n.type}`.toLowerCase();
+      const score = tokens.reduce((s, t) => s + (hay.includes(t) ? 1 : 0), 0);
+      return { n, score };
+    }).filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 3);
+    return {
+      results: scored.map(({ n }) => ({
+        text: `${n.type.replace('_', ' ')} · ${n.label} (graph weight ${n.weight}). Connected to ${countConnections(g, n.id)} other nodes.`,
+      })),
+    };
+  } catch {
+    return { results: [] };
+  }
+}
+
+function countConnections(g, id) {
+  let c = 0;
+  for (const e of g.edges) {
+    if (e.source === id || e.target === id) c++;
+  }
+  return c;
 }
 
 function StatBadge({ label, value, color, emphasis }) {
