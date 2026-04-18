@@ -2,7 +2,7 @@
 
 > 25 personalized AI sales agents in parallel. Each researches its lead, switches mode (Cold → Warm → Hot → Human-Handoff) live, and learns across calls.
 
-Built for the **HappyRobot × TUM.ai** challenge as **Idea 1**. Hero demo = "Live Swarm": the system calls all 5 team members live during the 3-min pitch (5 calls)...
+Built for the **HappyRobot × TUM.ai** challenge as **Idea 1**. Hero demo = "Live Swarm": the system calls all 5 team members live during the 3-min pitch (5 calls)....
 
 ## Where things live
 
