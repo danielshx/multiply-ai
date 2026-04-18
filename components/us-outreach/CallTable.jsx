@@ -92,7 +92,7 @@ function fmtAgo(ts) {
   return `${Math.floor(ms / 3_600_000)}h ago`;
 }
 
-export function CallTable({ calls, loading, commission, messageCounts = {}, onOpen }) {
+export function CallTable({ calls, loading, commission, messageCounts = {}, lastMessageByCall = {}, onOpen }) {
   return (
     <Panel
       title="Calls"
@@ -142,6 +142,7 @@ export function CallTable({ calls, loading, commission, messageCounts = {}, onOp
             const status = STATUS_TONE[c.status] ?? STATUS_TONE.triggered;
             const disp = c.disposition ? DISPOSITION_TONE[c.disposition] : null;
             const earned = c.disposition === 'closed' ? commission : 0;
+            const lastMsg = lastMessageByCall[c.id];
             return (
               <button
                 key={c.id}
@@ -183,6 +184,11 @@ export function CallTable({ calls, loading, commission, messageCounts = {}, onOp
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>
                     {fmtAgo(c.created_at)}
+                    {lastMsg && (
+                      <span style={{ marginLeft: 6, fontFamily: 'var(--sans)', color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+                        · {lastMsg.role === 'assistant' || lastMsg.role === 'agent' ? '🤖' : '👤'} "{(lastMsg.content ?? '').slice(0, 50)}{(lastMsg.content ?? '').length > 50 ? '…' : ''}"
+                      </span>
+                    )}
                   </span>
                 </div>
 

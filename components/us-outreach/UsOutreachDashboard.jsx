@@ -6,6 +6,7 @@ import { DialerPanel } from './DialerPanel';
 import { CallTable } from './CallTable';
 import { RevenueWidget } from './RevenueWidget';
 import { TranscriptDrawer } from './TranscriptDrawer';
+import { LiveCallsPanel } from './LiveCallsPanel';
 
 const DEFAULT_COMMISSION = Number(process.env.NEXT_PUBLIC_DEFAULT_COMMISSION_USD ?? 25);
 
@@ -16,6 +17,8 @@ export default function UsOutreachDashboard() {
   const [commission, setCommission] = useState(DEFAULT_COMMISSION);
   const [openCallId, setOpenCallId] = useState(null);
   const [messageCounts, setMessageCounts] = useState({});
+  const [lastMessageByCall, setLastMessageByCall] = useState({});
+  const [autoOpenedIds, setAutoOpenedIds] = useState(new Set());
 
   useEffect(() => {
     const sb = getBrowserSupabase();
@@ -32,13 +35,22 @@ export default function UsOutreachDashboard() {
       });
 
     sb.from('us_outreach_messages')
-      .select('call_id')
+      .select('call_id, role, content, ts')
       .limit(2000)
       .then(({ data }) => {
         if (cancelled || !data) return;
         const counts = {};
-        for (const row of data) counts[row.call_id] = (counts[row.call_id] ?? 0) + 1;
+        const lastByCall = {};
+        for (const row of data) {
+          counts[row.call_id] = (counts[row.call_id] ?? 0) + 1;
+          const prev = lastByCall[row.call_id];
+          const t = new Date(row.ts ?? 0).getTime();
+          if (!prev || t > prev.t) {
+            lastByCall[row.call_id] = { t, role: row.role, content: row.content };
+          }
+        }
         setMessageCounts(counts);
+        setLastMessageByCall(lastByCall);
       });
 
     const msgCh = sb
@@ -47,9 +59,15 @@ export default function UsOutreachDashboard() {
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'us_outreach_messages' },
         (payload) => {
-          const id = payload.new?.call_id;
-          if (!id) return;
-          setMessageCounts((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
+          const row = payload.new;
+          if (!row?.call_id) return;
+          setMessageCounts((prev) => ({ ...prev, [row.call_id]: (prev[row.call_id] ?? 0) + 1 }));
+          setLastMessageByCall((prev) => {
+            const t = new Date(row.ts ?? 0).getTime();
+            const cur = prev[row.call_id];
+            if (cur && t <= cur.t) return prev;
+            return { ...prev, [row.call_id]: { t, role: row.role, content: row.content } };
+          });
         },
       )
       .subscribe();
@@ -116,6 +134,23 @@ export default function UsOutreachDashboard() {
     };
   }, [calls.map((c) => `${c.id}:${c.status}`).join(',')]);
 
+  // Auto-open drawer when a new live call starts (so the user sees the live
+  // transcript without having to click). Only auto-opens each call once.
+  useEffect(() => {
+    const fresh = calls.find(
+      (c) =>
+        (c.status === 'live' || c.status === 'triggered') &&
+        !autoOpenedIds.has(c.id),
+    );
+    if (!fresh) return;
+    setAutoOpenedIds((prev) => {
+      const n = new Set(prev);
+      n.add(fresh.id);
+      return n;
+    });
+    if (!openCallId) setOpenCallId(fresh.id);
+  }, [calls, openCallId, autoOpenedIds]);
+
   const stats = useMemo(() => {
     const placed = calls.length;
     const connectedCalls = calls.filter((c) =>
@@ -174,11 +209,14 @@ export default function UsOutreachDashboard() {
           />
         </div>
 
+        <LiveCallsPanel calls={calls} onOpen={(id) => setOpenCallId(id)} />
+
         <CallTable
           calls={calls}
           loading={loading}
           commission={commission}
           messageCounts={messageCounts}
+          lastMessageByCall={lastMessageByCall}
           onOpen={(id) => setOpenCallId(id)}
         />
       </div>
