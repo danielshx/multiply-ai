@@ -86,6 +86,17 @@ export async function POST(req: Request) {
     })
     .catch(() => null);
 
+  slackNotify({
+    text: `🎯 Meeting booked with ${body.company ?? "unknown"} for ${slot}`,
+    blocks: bookedBlocks({
+      company: body.company ?? "unknown",
+      attendeeEmail: body.attendee_email ?? "",
+      slot,
+      mode,
+      link: calendarLink,
+    }),
+  }).catch(() => null);
+
   return NextResponse.json({
     ok: true,
     mode,

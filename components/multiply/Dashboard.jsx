@@ -24,6 +24,27 @@ export function Dashboard({ openCall, showToast, agentsPaused, signalCount, setV
   }, [agentsPaused]);
 
   useEffect(() => {
+    if (agentsPaused) return;
+    let cancelled = false;
+    const pull = async () => {
+      try {
+        const res = await fetch('/api/news?q=funding');
+        const data = await res.json();
+        if (cancelled || !data?.signals?.length) return;
+        const pick = data.signals[Math.floor(Math.random() * Math.min(5, data.signals.length))];
+        if (!pick) return;
+        setSignals(prev => {
+          if (prev.some(s => s.url === pick.url)) return prev;
+          return [{ ...pick, fresh: true }, ...prev].slice(0, 10);
+        });
+      } catch {}
+    };
+    const id = setInterval(pull, 18000);
+    pull();
+    return () => { cancelled = true; clearInterval(id); };
+  }, [agentsPaused]);
+
+  useEffect(() => {
     const id = setInterval(() => {
       setSignals(prev => prev.map(s => ({ ...s, time: s.time + 1, fresh: false })));
     }, 60000);
@@ -245,6 +266,11 @@ function SignalRow({ signal, fresh, onClick }) {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {signal.tags.map(t => <Pill key={t} color="neutral" size="xs">{t}</Pill>)}
           <Pill color={scoreTone} size="xs">Score {signal.score}</Pill>
+          {signal.source && (
+            <span style={{ fontSize: 10, color: 'var(--text-quaternary)', fontFamily: 'var(--mono)' }}>
+              via {signal.source}
+            </span>
+          )}
           {hover && (
             <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500 }}>
               Open <IconArrow size={10} />
@@ -583,16 +609,23 @@ function SignalDrawer({ signal, onClose, showToast }) {
           border: '1px solid var(--border-subtle)',
         }}>
           <IconLink size={13} />
-          <span style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--mono)' }}>
-            {signal.type === 'funding' ? 'techcrunch.com/2026/04/northwind-series-b' :
+          <span style={{ flex: 1, fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {signal.url ? (new URL(signal.url).hostname) :
+             signal.type === 'funding' ? 'techcrunch.com/2026/04/northwind-series-b' :
              signal.type === 'hiring' ? 'linkedin.com/jobs/vantage-biotech' :
              signal.type === 'social' ? 'linkedin.com/posts/meridian-vp-ops' :
              signal.type === 'stack' ? 'builtwith.com/acmefintech.com' :
              'reuters.com/philips-acquires-orbital-health'}
           </span>
-          <button style={{ color: 'var(--text-tertiary)' }} onClick={() => showToast('Opening source in new tab', 'info')}>
-            <IconExternal size={12} />
-          </button>
+          {signal.url ? (
+            <a href={signal.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', display: 'flex' }}>
+              <IconExternal size={12} />
+            </a>
+          ) : (
+            <button style={{ color: 'var(--text-tertiary)' }} onClick={() => showToast('Opening source in new tab', 'info')}>
+              <IconExternal size={12} />
+            </button>
+          )}
         </div>
       </DrawerSection>
 

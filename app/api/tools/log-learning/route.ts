@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { cognee } from "@/lib/cognee/client";
+import { slackNotify, learningBlocks } from "@/lib/slack";
 
 /**
  * POST /api/tools/log-learning — HR custom tool. Called when a call ends:
@@ -76,6 +77,18 @@ export async function POST(req: Request) {
         ...(body.metadata ?? {}),
       },
     });
+
+    slackNotify({
+      text: `Call logged · ${body.company ?? "unknown"} · outcome ${body.outcome ?? "re-engaged"}`,
+      blocks: learningBlocks({
+        company: body.company ?? "unknown",
+        personaName: persona.name ?? "unknown",
+        personaRole: persona.role ?? "unknown",
+        outcome: body.outcome ?? "re-engaged",
+        rebuttalPattern: body.rebuttal_pattern,
+        objectionCount: objections.length,
+      }),
+    }).catch(() => null);
 
     return NextResponse.json({ ok: true });
   } catch (err) {
