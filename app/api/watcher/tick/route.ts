@@ -76,7 +76,18 @@ type UsOutreachCall = {
   duration_sec: number | null;
   total_duration_sec: number | null;
   created_at: string;
+  updated_at: string | null;
   ended_at: string | null;
+};
+
+type UsOutreachLog = {
+  id: string;
+  ts: string;
+  level: string | null;
+  source: string | null;
+  event: string | null;
+  detail: Record<string, unknown> | null;
+  call_id: string | null;
 };
 
 type BusinessContext = {
@@ -91,6 +102,10 @@ type BusinessContext = {
   topic?: string | null;
   agent_name?: string | null;
   google_place_id?: string | null;
+  us_outreach_dispatchable?: boolean;
+  last_log_level?: string | null;
+  last_log_event?: string | null;
+  last_log_source?: string | null;
 };
 
 type ChangeItem = {
@@ -133,7 +148,7 @@ export async function POST(req: Request) {
   // Cognee recall is slow (1-3s per lead) — opt-in only. The watcher
   // decision rule already works fine with stage + heat + reason_changed.
   const withCognee = body.with_cognee === true;
-  const totalLimit = Math.max(1, Math.min(body.limit ?? 200, 500));
+  const totalLimit = Math.max(1, Math.min(body.limit ?? 50000, 50000));
 
   const supabase = getServerSupabase();
   const changes: ChangeItem[] = [];
@@ -187,7 +202,7 @@ async function readLeadsSource(
       .from("leads")
       .select("*")
       .gte("created_at", sinceISO)
-      .or("source.is.null,source.neq.googlemaps_candidates")
+      .or("source.is.null,and(source.neq.googlemaps_candidates,source.neq.us_outreach_calls)")
       .limit(200),
     supabase.from("messages").select("*").gte("ts", sinceISO).limit(500),
   ]);
@@ -410,27 +425,70 @@ async function readUsOutreachSource(
   sinceISO: string,
   nowISO: string,
 ): Promise<ChangeItem[]> {
-  // Only pick rows that have NOT been triggered yet — the table records
-  // both pending leads and already-fired calls. hr_run_id IS NULL means
-  // "not yet dispatched". created_at >= since limits to fresh inserts.
-  const { data, error } = await supabase
-    .from("us_outreach_calls")
-    .select("*")
-    .gte("created_at", sinceISO)
-    .is("hr_run_id", null)
-    .order("created_at", { ascending: false })
-    .limit(200);
+  // Pull changes from BOTH us_outreach tables:
+  // - calls that were created/updated/ended in the window
+  // - logs written in the same window (mapped back to call rows)
+  // Supabase/PostgREST caps single queries at 1000 rows by default — paginate
+  // both fetches so we get the full us_outreach_calls table even at scale.
+  const [calls, logsRaw] = await Promise.all([
+    fetchAllPaginated<UsOutreachCall>(supabase, (q) =>
+      q
+        .from("us_outreach_calls")
+        .select("*")
+        .or(`created_at.gte.${sinceISO},updated_at.gte.${sinceISO},ended_at.gte.${sinceISO}`)
+        .order("updated_at", { ascending: false }),
+    ),
+    fetchAllPaginated<UsOutreachLog>(supabase, (q) =>
+      q
+        .from("us_outreach_logs")
+        .select("*")
+        .gte("ts", sinceISO)
+        .not("call_id", "is", null)
+        .order("ts", { ascending: false }),
+    ),
+  ]);
 
-  if (error) {
-    console.warn(`[tick] us_outreach source error: ${error.message}`);
-    return [];
+  const logs = logsRaw.filter(
+    (l): l is UsOutreachLog & { call_id: string } => typeof l.call_id === "string",
+  );
+
+  const callsById = new Map<string, UsOutreachCall>();
+  for (const row of calls) callsById.set(row.id, row);
+
+  const callIdsFromLogs = Array.from(new Set(logs.map((l) => l.call_id)));
+  const missingCallIds = callIdsFromLogs.filter((id) => !callsById.has(id));
+  if (missingCallIds.length > 0) {
+    const { data: extra } = await supabase
+      .from("us_outreach_calls")
+      .select("*")
+      .in("id", missingCallIds)
+      .limit(50000);
+    for (const row of (extra ?? []) as UsOutreachCall[]) callsById.set(row.id, row);
   }
-  const rows = (data ?? []) as UsOutreachCall[];
-  if (rows.length === 0) return [];
 
-  await syncUsOutreachToLeads(supabase, rows);
+  if (callsById.size === 0) return [];
+
+  const logsByCallId = new Map<string, UsOutreachLog[]>();
+  for (const log of logs) {
+    const arr = logsByCallId.get(log.call_id) ?? [];
+    if (arr.length < 5) {
+      arr.push(log);
+      logsByCallId.set(log.call_id, arr);
+    }
+  }
+
+  const rows = Array.from(callsById.values()).sort(
+    (a, b) =>
+      new Date(usOutreachChangedAt(b)).getTime() -
+      new Date(usOutreachChangedAt(a)).getTime(),
+  );
+
+  await syncUsOutreachToLeads(supabase, rows, logsByCallId);
 
   return rows.map((row) => {
+    const callLogs = logsByCallId.get(row.id) ?? [];
+    const latestLog = callLogs[0];
+    const dispatchable = isUsOutreachDispatchable(row, latestLog);
     const phone = (row.phone_number ?? "").trim();
     const heat = usOutreachHeat(row);
     const goalParts: string[] = [];
@@ -438,12 +496,23 @@ async function readUsOutreachSource(
     if (row.country_code) goalParts.push(`country=${row.country_code}`);
     if (row.disposition) goalParts.push(`prev disposition=${row.disposition}`);
     if (row.objection_tags?.length) goalParts.push(`objections=${row.objection_tags.join(",")}`);
-    const customerGoal = goalParts.join(" | ").slice(0, 500) || "us_outreach pending call";
+    if (latestLog?.event) {
+      goalParts.push(
+        `last_log=${latestLog.level ?? "info"}:${latestLog.event}`,
+      );
+    }
+    const latestError = latestLog?.detail?.error;
+    if (typeof latestError === "string" && latestError) {
+      goalParts.push(`err=${latestError.slice(0, 120)}`);
+    }
+    const customerGoal =
+      goalParts.join(" | ").slice(0, 500) || "us_outreach call update";
+    const reason = usOutreachReasonChanged(row, latestLog, sinceISO);
 
     return {
       lead_id: row.id,
       source: "us_outreach",
-      name: row.contact_name ?? `Contact ${phone}`,
+      name: prettyContactName(row.contact_name, phone, row.country_code),
       company: "(US Outreach)",
       phone_number: phone,
       email: "",
@@ -451,14 +520,23 @@ async function readUsOutreachSource(
       current_time: nowISO,
       current_mode: heat,
       stage: row.status ?? "new",
-      reason_changed: "new_us_outreach_pending",
+      reason_changed: reason,
       business_context: {
         source: "us_outreach",
         topic: "Paid Online Writing Jobs",
         company_type: "us_cold_call",
         agent_name: "us_outreach",
+        us_outreach_dispatchable: dispatchable,
+        last_log_level: latestLog?.level ?? null,
+        last_log_event: latestLog?.event ?? null,
+        last_log_source: latestLog?.source ?? null,
       },
-      recent_messages: [],
+      recent_messages: callLogs.slice(0, 5).reverse().map((log) => ({
+        ts: log.ts,
+        role: log.level,
+        channel: `us_outreach_log:${log.source ?? "unknown"}`,
+        content: `[${log.event ?? "event"}] ${JSON.stringify(log.detail ?? {}).slice(0, 500)}`,
+      })),
       cognee_context: "",
     };
   });
@@ -467,13 +545,16 @@ async function readUsOutreachSource(
 async function syncUsOutreachToLeads(
   supabase: ReturnType<typeof getServerSupabase>,
   rows: UsOutreachCall[],
+  logsByCallId: Map<string, UsOutreachLog[]>,
 ): Promise<void> {
   if (rows.length === 0) return;
   const payload = rows.map((row) => {
     const heat = usOutreachHeat(row);
+    const latestLog = logsByCallId.get(row.id)?.[0];
+    const dispatchable = isUsOutreachDispatchable(row, latestLog);
     return {
       id: row.id,
-      name: row.contact_name ?? `Contact ${row.phone_number}`,
+      name: prettyContactName(row.contact_name, row.phone_number, row.country_code),
       phone: row.phone_number,
       email: null,
       interest:
@@ -489,6 +570,10 @@ async function syncUsOutreachToLeads(
         language: row.language,
         objection_tags: row.objection_tags,
         prior_hr_run_id: row.hr_run_id,
+        dispatchable,
+        latest_log_level: latestLog?.level ?? null,
+        latest_log_event: latestLog?.event ?? null,
+        latest_log_source: latestLog?.source ?? null,
         synced_at: new Date().toISOString(),
       },
     };
@@ -501,6 +586,61 @@ async function syncUsOutreachToLeads(
   }
 }
 
+/**
+ * The us_outreach pipeline writes "Friend" / "Undisclosed" as a placeholder
+ * when the carrier didn't expose a real caller name (~95% of rows). Display
+ * those generically. If we DO have a real first name, keep it.
+ */
+function prettyContactName(
+  raw: string | null,
+  phone: string | null,
+  countryCode: string | null,
+): string {
+  const name = (raw ?? "").trim();
+  const phoneClean = (phone ?? "").trim();
+  const isPlaceholder =
+    !name ||
+    name.toLowerCase() === "friend" ||
+    name.toLowerCase() === "undisclosed" ||
+    name.toLowerCase() === "diagtest" ||
+    name.toLowerCase() === "unknown";
+
+  if (!isPlaceholder) return name;
+
+  // Build "US Lead +1 (404) ····0557" style label.
+  const region = areaCodeRegion(phoneClean) ?? countryCode ?? "?";
+  const last4 = phoneClean.replace(/[^\d]/g, "").slice(-4);
+  return `US Lead · ${region}${last4 ? ` · ····${last4}` : ""}`;
+}
+
+const AREA_CODE_REGIONS: Record<string, string> = {
+  "212": "NYC", "718": "NYC", "646": "NYC", "917": "NYC", "347": "NYC",
+  "404": "Atlanta", "470": "Atlanta", "678": "Atlanta", "770": "Atlanta",
+  "415": "SF", "510": "Oakland", "650": "Bay Area", "408": "San Jose", "925": "East Bay",
+  "213": "LA", "310": "LA", "323": "LA", "424": "LA", "818": "LA",
+  "312": "Chicago", "773": "Chicago", "872": "Chicago",
+  "617": "Boston", "857": "Boston",
+  "713": "Houston", "281": "Houston", "832": "Houston",
+  "214": "Dallas", "469": "Dallas", "972": "Dallas",
+  "305": "Miami", "786": "Miami",
+  "202": "DC", "703": "Northern VA", "240": "MD",
+  "206": "Seattle", "425": "Seattle",
+  "503": "Portland", "971": "Portland",
+  "702": "Las Vegas", "725": "Las Vegas",
+  "303": "Denver", "720": "Denver",
+  "602": "Phoenix", "480": "Phoenix", "623": "Phoenix",
+  "215": "Philly", "267": "Philly", "445": "Philly",
+};
+
+function areaCodeRegion(phone: string): string | null {
+  // Normalize to digits only, drop leading "1" for US numbers.
+  const digits = phone.replace(/[^\d]/g, "");
+  if (digits.length < 4) return null;
+  const trimmed = digits.startsWith("1") && digits.length === 11 ? digits.slice(1) : digits;
+  const ac = trimmed.slice(0, 3);
+  return AREA_CODE_REGIONS[ac] ?? null;
+}
+
 function usOutreachHeat(row: UsOutreachCall): "cold" | "warm" | "hot" {
   // Disposition is the strongest signal; status is the runtime state.
   const d = (row.disposition ?? "").toLowerCase();
@@ -508,6 +648,89 @@ function usOutreachHeat(row: UsOutreachCall): "cold" | "warm" | "hot" {
   if (d.includes("callback") || d.includes("voicemail")) return "warm";
   if (row.status === "live" || row.status === "ringing") return "warm";
   return "cold";
+}
+
+function usOutreachChangedAt(row: UsOutreachCall): string {
+  return row.ended_at ?? row.updated_at ?? row.created_at;
+}
+
+function isUsOutreachDispatchable(
+  row: UsOutreachCall,
+  latestLog: UsOutreachLog | undefined,
+): boolean {
+  if (row.hr_run_id) return false;
+  const status = (row.status ?? "").toLowerCase();
+  if (US_OUTREACH_TERMINAL_STATUSES.has(status)) return false;
+  const event = (latestLog?.event ?? "").toLowerCase();
+  if (event.includes("canceled") || event.includes("closed")) return false;
+  return true;
+}
+
+function usOutreachReasonChanged(
+  row: UsOutreachCall,
+  latestLog: UsOutreachLog | undefined,
+  sinceISO: string,
+): string {
+  if (isOnOrAfter(row.created_at, sinceISO)) return "new_us_outreach_pending";
+  if (latestLog?.event) {
+    const lvl = slugifyReasonToken(latestLog.level ?? "info");
+    const ev = slugifyReasonToken(latestLog.event);
+    return `us_log_${lvl}_${ev}`;
+  }
+  if (row.ended_at && isOnOrAfter(row.ended_at, sinceISO)) {
+    return "us_outreach_ended";
+  }
+  return "us_outreach_updated";
+}
+
+function isOnOrAfter(ts: string, sinceISO: string): boolean {
+  return new Date(ts).getTime() >= new Date(sinceISO).getTime();
+}
+
+function slugifyReasonToken(raw: string): string {
+  return raw.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+const US_OUTREACH_TERMINAL_STATUSES = new Set([
+  "completed",
+  "closed",
+  "canceled",
+  "failed",
+  "invalid",
+  "not_interested",
+  "interested_no_sms",
+  "voicemail",
+  "callback",
+]);
+
+/**
+ * Pull every row matching the query in 1000-row pages — works around
+ * PostgREST's default db.max_rows cap. Stops when a page returns fewer
+ * than PAGE_SIZE rows or when we hit the safety ceiling.
+ */
+async function fetchAllPaginated<T>(
+  supabase: ReturnType<typeof getServerSupabase>,
+  build: (sb: ReturnType<typeof getServerSupabase>) => {
+    range: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>;
+  },
+  pageSize = 1000,
+  safetyCeiling = 50000,
+): Promise<T[]> {
+  const out: T[] = [];
+  let from = 0;
+  while (from < safetyCeiling) {
+    const to = from + pageSize - 1;
+    const { data, error } = await build(supabase).range(from, to);
+    if (error) {
+      console.warn(`[tick] paginated fetch error at offset ${from}: ${error.message}`);
+      break;
+    }
+    const batch = (data ?? []) as T[];
+    out.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
 }
 
 function ratingToHeat(rating: number | null): "cold" | "warm" | "hot" {

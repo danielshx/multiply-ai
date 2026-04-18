@@ -58,13 +58,17 @@ async function tick() {
     } else {
       const json = JSON.parse(text) as {
         mode?: string;
-        tick: { total: number; sources: { leads: number; googlemaps: number }; next_since: string };
+        tick: {
+          total: number;
+          sources: { leads: number; googlemaps: number; us_outreach?: number };
+          next_since: string;
+        };
         fan_out?: { dispatched: number; eligible: number; skipped_due_to_limit: number };
         decisions?: Array<{ name: string; decision: string; reasoning: string }>;
       };
       nextSince = json.tick.next_since;
       const fan = json.fan_out;
-      summary = `mode=${json.mode} found=${json.tick.total} (manual=${json.tick.sources.leads}, gmaps=${json.tick.sources.googlemaps})${fan ? ` dispatched=${fan.dispatched}/${fan.eligible} skipped=${fan.skipped_due_to_limit}` : ""}`;
+      summary = `mode=${json.mode} found=${json.tick.total} (manual=${json.tick.sources.leads}, gmaps=${json.tick.sources.googlemaps}, us=${json.tick.sources.us_outreach ?? 0})${fan ? ` dispatched=${fan.dispatched}/${fan.eligible} skipped=${fan.skipped_due_to_limit}` : ""}`;
       if (json.decisions && json.decisions.length > 0) {
         const top = json.decisions
           .slice(0, Math.min(5, max))

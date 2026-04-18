@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { persistMessage, findLeadIdByContact } from "@/lib/supabase/persistMessage";
+import { getPriorContext } from "@/lib/cognee/priorContext";
 
 /**
  * POST /api/watcher/trigger-sms — SMS branch of the Watcher Cron Workflow.
@@ -45,13 +46,24 @@ export async function POST(req: Request) {
     );
   }
 
+  // Pull prior interaction context from Cognee (best-effort, 4s timeout) so the
+  // SMS agent doesn't ping someone who already opted out / was contacted yesterday.
+  const prior = await getPriorContext({
+    name: body.name,
+    company: body.company,
+    phone: body.phone_number,
+    email: body.email,
+    channel: "sms",
+  });
+  const priorBlob = prior ? `\n\n[prior_context]\n${prior}` : "";
+
   const payload = {
     name: body.name ?? "",
     company: body.company ?? "",
     phone_number: body.phone_number,
     email: body.email ?? "",
     current_time: body.current_time ?? new Date().toISOString(),
-    customer_goal: body.customer_goal ?? "",
+    customer_goal: `${body.customer_goal ?? ""}${priorBlob}`.slice(0, 1500),
   };
 
   const leadId = await findLeadIdByContact({

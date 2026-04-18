@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 /**
  * POST /api/watcher/run — runs ONE full watcher pass server-side:
  *
- *   1. /api/watcher/tick to discover changes (manual leads + googlemaps_candidates)
+ *   1. /api/watcher/tick to discover changes (manual + googlemaps + us_outreach)
  *   2. Apply the deterministic decision rule (call/sms/email/skip)
  *   3. Fan out to /api/watcher/route, with concurrency control
  *
@@ -25,7 +25,7 @@ import { NextResponse } from "next/server";
  */
 type TickChange = {
   lead_id: string;
-  source: "manual" | "googlemaps";
+  source: "manual" | "googlemaps" | "us_outreach";
   name: string;
   company: string;
   phone_number: string;
@@ -68,7 +68,10 @@ export async function POST(req: Request) {
   const tickRes = await fetch(`${origin}/api/watcher/tick`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body.since ? { since: body.since } : {}),
+    body: JSON.stringify({
+      ...(body.since ? { since: body.since } : {}),
+      limit: 50000, // effectively unlimited — `max` further down controls actual fan-out
+    }),
     cache: "no-store",
   });
   if (!tickRes.ok) {
@@ -81,7 +84,7 @@ export async function POST(req: Request) {
     count: number;
     total: number;
     returned: number;
-    sources: { leads: number; googlemaps: number };
+    sources: { leads: number; googlemaps: number; us_outreach: number };
     since: string;
     next_since: string;
     changes: TickChange[];
@@ -220,6 +223,10 @@ function decide(c: TickChange): {
   const mode = (c.current_mode ?? "").toLowerCase();
   const ctx = (c.cognee_context ?? "").toLowerCase();
 
+  // (us_outreach: previously skipped rows that already had hr_run_id /
+  // terminal stage — disabled per request, the user wants to re-attempt
+  // every us_outreach contact through the watcher's Mini Voice Agent.)
+
   if (ctx.includes("booked") || ctx.includes("meeting_booked"))
     return { decision: "skip", reasoning: "already booked recently" };
   if (ctx.includes("opt_out") || ctx.includes("unsubscribe"))
@@ -254,3 +261,10 @@ function enrichGoalWithContext(
   const suffix = parts.length > 0 ? ` (${parts.join(" · ")})` : "";
   return `${baseGoal}${suffix}`.slice(0, 600);
 }
+
+const US_OUTREACH_TERMINAL_STAGES = new Set([
+  "completed",
+  "closed",
+  "failed",
+  "canceled",
+]);

@@ -30,7 +30,7 @@ export function LiveMonitor() {
   });
   const [busy, setBusy] = useState(null);
   const [preview, setPreview] = useState(null); // { decisions, total, sources } when confirmation is open
-  const [view, setView] = useState('active'); // 'active' | 'closed'
+  const [view, setView] = useState('active'); // 'active' | 'conversation' | 'closed'
   const [showSystemEvents, setShowSystemEvents] = useState(false);
 
   useEffect(() => {
@@ -38,8 +38,8 @@ export function LiveMonitor() {
     let cancelled = false;
     (async () => {
       const [{ data: leadsData }, { data: msgsData }] = await Promise.all([
-        sb.from('leads').select('*').order('created_at', { ascending: false }).limit(100),
-        sb.from('messages').select('*').order('ts', { ascending: false }).limit(800),
+        sb.from('leads').select('*').order('created_at', { ascending: false }).limit(50000),
+        sb.from('messages').select('*').order('ts', { ascending: false }).limit(50000),
       ]);
       if (cancelled) return;
       setLeads(leadsData ?? []);
@@ -157,9 +157,14 @@ export function LiveMonitor() {
   const filteredLeads = useMemo(() => {
     return leads.filter(l => {
       const closed = isClosedStage(l.stage) || !!l.closed_at;
-      return view === 'closed' ? closed : !closed;
+      if (view === 'closed') return closed;
+      if (view === 'conversation') {
+        const arr = messagesByLead.get(l.id) ?? [];
+        return hasRealConversation(arr);
+      }
+      return !closed;
     });
-  }, [leads, view]);
+  }, [leads, view, messagesByLead]);
 
   const orderedLeads = useMemo(() => {
     const lastTs = (id) => {
@@ -187,19 +192,20 @@ export function LiveMonitor() {
     const total = leads.length;
     const closed = leads.filter(l => isClosedStage(l.stage) || l.closed_at).length;
     const active = total - closed;
+    const conversation = leads.filter(l => hasRealConversation(messagesByLead.get(l.id) ?? [])).length;
     const hot = leads.filter(l => l.current_mode === 'hot' && !isClosedStage(l.stage)).length;
     const warm = leads.filter(l => l.current_mode === 'warm' && !isClosedStage(l.stage)).length;
     const cold = leads.filter(l => l.current_mode === 'cold' && !isClosedStage(l.stage)).length;
     const realMsgs = messages.filter(m => m.role !== 'system');
     const channelCount = (ch) => realMsgs.filter(m => m.channel === ch).length;
     return {
-      total, active, closed, hot, warm, cold,
+      total, active, closed, conversation, hot, warm, cold,
       voice: channelCount('phone'),
       sms: channelCount('sms'),
       email: channelCount('email'),
       msgs: realMsgs.length,
     };
-  }, [leads, messages]);
+  }, [leads, messages, messagesByLead]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -245,9 +251,13 @@ export function LiveMonitor() {
         </div>
       ) : orderedLeads.length === 0 ? (
         <div style={{ padding: 80, textAlign: 'center', color: 'var(--text-tertiary)', fontSize: 13 }}>
-          {view === 'closed'
-            ? 'no closed leads yet — they\'ll appear here once stage = booked / qualified / lost.'
-            : <>no active leads — click <strong>🚀 fire watcher</strong> above to start outreach.</>}
+          {view === 'closed' ? (
+            'no closed leads yet — they\'ll appear here once stage = booked / qualified / lost.'
+          ) : view === 'conversation' ? (
+            'no real conversations yet — this tab only shows leads with actual human replies (email/call), excluding no-answer / immediate hang-up.'
+          ) : (
+            <>no active leads — click <strong>🚀 fire watcher</strong> above to start outreach.</>
+          )}
         </div>
       ) : (
         <div style={{
@@ -327,6 +337,21 @@ function Header({ connected, stats, filter, setFilter, search, setSearch, watche
             }}
           >
             ✓ Closed <span style={{ opacity: 0.6, marginLeft: 4 }}>{stats.closed}</span>
+          </button>
+          <button
+            onClick={() => setView('conversation')}
+            style={{
+              padding: '5px 12px',
+              fontSize: 12,
+              background: view === 'conversation' ? 'var(--bg-subtle)' : 'transparent',
+              color: view === 'conversation' ? 'var(--text)' : 'var(--text-tertiary)',
+              border: 'none',
+              borderRadius: 4,
+              cursor: 'pointer',
+              fontWeight: view === 'conversation' ? 600 : 500,
+            }}
+          >
+            💬 Conversation <span style={{ opacity: 0.6, marginLeft: 4 }}>{stats.conversation}</span>
           </button>
         </div>
 
@@ -856,4 +881,49 @@ function btnStyle(active, primary) {
     cursor: 'pointer',
     transition: 'all 120ms ease',
   };
+}
+
+function hasRealConversation(messages) {
+  const real = (messages ?? []).filter(m => m.role !== 'system');
+  if (real.length < 2) return false;
+
+  const leadMsgs = real.filter(m => isLeadRole(m.role) && hasMeaningfulContent(m.content));
+  const agentMsgs = real.filter(m => isAgentRole(m.role) && hasMeaningfulContent(m.content));
+  if (leadMsgs.length === 0 || agentMsgs.length === 0) return false;
+
+  // Exclude no-answer / immediate hang-up type interactions.
+  const noConversationSignals = [
+    'no answer',
+    'did not answer',
+    'not answered',
+    'voicemail',
+    'went to voicemail',
+    'hung up',
+    'hang up',
+    'call dropped',
+    'unreachable',
+    'line busy',
+  ];
+  const transcript = real.map(m => String(m.content ?? '').toLowerCase()).join(' \n ');
+  if (noConversationSignals.some(s => transcript.includes(s)) && leadMsgs.length <= 1) {
+    return false;
+  }
+
+  return true;
+}
+
+function isLeadRole(role) {
+  return role === 'lead' || role === 'user' || role === 'customer' || role === 'contact';
+}
+
+function isAgentRole(role) {
+  return role === 'agent' || role === 'assistant';
+}
+
+function hasMeaningfulContent(content) {
+  const text = String(content ?? '').trim();
+  if (!text) return false;
+  if (text.length < 2) return false;
+  if (/^[.?!,;:-]+$/.test(text)) return false;
+  return true;
 }
