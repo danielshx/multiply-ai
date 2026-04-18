@@ -41,6 +41,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
 }
 
+function splitMetadataBlock(raw: string): { cleanText: string; metadata: Record<string, string> } {
+  const metadata: Record<string, string> = {};
+  const idx = raw.lastIndexOf("[metadata]");
+  if (idx === -1) return { cleanText: raw.trim(), metadata };
+  const head = raw.slice(0, idx).trim();
+  const tail = raw.slice(idx + "[metadata]".length).trim();
+  for (const line of tail.split(/\r?\n/)) {
+    const m = line.match(/^\s*([a-zA-Z_][\w-]*)\s*:\s*(.+)\s*$/);
+    if (m) metadata[m[1]] = m[2];
+  }
+  return { cleanText: head, metadata };
+}
+
 export type RememberInput = {
   text: string;
   dataset?: string;
@@ -135,26 +148,45 @@ export const cognee = {
     });
     const arr = Array.isArray(raw) ? raw : (raw as { results?: unknown[] })?.results ?? [];
     const results: RecallHit[] = [];
+    const pushObj = (o: Record<string, unknown>) => {
+      const rawText =
+        (o.text as string | undefined) ??
+        (o.content as string | undefined) ??
+        (o.answer as string | undefined);
+      if (!rawText) return;
+      const { cleanText, metadata } = splitMetadataBlock(rawText);
+      results.push({
+        text: cleanText,
+        score: o.score as number | undefined,
+        metadata: {
+          ...(o.metadata as Record<string, unknown> | undefined),
+          ...metadata,
+          type: o.type as string | undefined,
+          id: o.id as string | undefined,
+        },
+        node_id: (o.node_id as string | undefined) ?? (o.id as string | undefined),
+      });
+    };
     for (const item of arr as unknown[]) {
       if (typeof item === "string") {
-        results.push({ text: item });
+        const { cleanText, metadata } = splitMetadataBlock(item);
+        results.push({ text: cleanText, metadata });
         continue;
       }
       const obj = item as Record<string, unknown>;
       const inner = obj.search_result;
       if (Array.isArray(inner)) {
         for (const t of inner) {
-          if (typeof t === "string") results.push({ text: t });
-          else results.push({ text: JSON.stringify(t) });
+          if (typeof t === "string") {
+            const { cleanText, metadata } = splitMetadataBlock(t);
+            results.push({ text: cleanText, metadata });
+          } else if (t && typeof t === "object") {
+            pushObj(t as Record<string, unknown>);
+          }
         }
         continue;
       }
-      results.push({
-        text: (obj.text as string) ?? (obj.content as string) ?? JSON.stringify(obj),
-        score: obj.score as number | undefined,
-        metadata: obj.metadata as Record<string, unknown> | undefined,
-        node_id: obj.node_id as string | undefined,
-      });
+      pushObj(obj);
     }
     return { results, raw };
   },

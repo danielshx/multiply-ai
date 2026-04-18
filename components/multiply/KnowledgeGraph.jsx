@@ -212,25 +212,40 @@ export function KnowledgeGraph() {
 
               {recallResults?.results?.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 360, overflow: 'auto' }}>
-                  {recallResults.results.map((r, i) => (
-                    <div key={i} style={{
-                      padding: 12,
-                      background: 'var(--accent-soft)',
-                      border: '1px solid var(--accent-border)',
-                      borderRadius: 'var(--radius-md)',
-                      fontSize: 12,
-                      color: 'var(--text)',
-                      lineHeight: 1.55,
-                    }}>
-                      <div style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
-                        <Dot color="accent" size={5} pulse={i === 0} />
-                        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent-text)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 1 }}>
-                          {i === 0 ? 'Top hit' : `Hit ${i + 1}`}
-                        </span>
+                  {recallResults.results.map((r, i) => {
+                    const meta = r?.metadata ?? {};
+                    const chipKeys = ['node_type', 'persona_role', 'industry', 'rebuttal_pattern', 'outcome', 'region'];
+                    const chips = chipKeys.filter((k) => typeof meta[k] === 'string').slice(0, 5);
+                    return (
+                      <div key={r.node_id ?? i} style={{
+                        padding: 12,
+                        background: i === 0 ? 'var(--accent-soft)' : 'var(--bg-subtle)',
+                        border: `1px solid ${i === 0 ? 'var(--accent-border)' : 'var(--border-subtle)'}`,
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 12,
+                        color: 'var(--text)',
+                        lineHeight: 1.55,
+                      }}>
+                        <div style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          <Dot color="accent" size={5} pulse={i === 0} />
+                          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: i === 0 ? 'var(--accent-text)' : 'var(--text-tertiary)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: 1 }}>
+                            {i === 0 ? 'Top hit' : `Hit ${i + 1}`}
+                          </span>
+                          {chips.map((k) => (
+                            <span key={k} style={{
+                              fontSize: 9, fontFamily: 'var(--mono)',
+                              padding: '1px 6px', borderRadius: 999,
+                              background: 'var(--surface)', border: '1px solid var(--border)',
+                              color: 'var(--text-secondary)',
+                            }}>
+                              {k === 'node_type' ? String(meta[k]).replace(/_/g, ' ') : `${k.replace(/_/g, ' ')}: ${meta[k]}`}
+                            </span>
+                          ))}
+                        </div>
+                        <div style={{ whiteSpace: 'pre-wrap' }}>{r.text}</div>
                       </div>
-                      <div>{r.text}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {recallResults && !recallResults.fallback && (recallResults.results?.length ?? 0) === 0 && !recallResults.error && (

@@ -25,20 +25,31 @@ export function CogneeIntelligence({ onResultsHighlight }) {
     setAsking(true);
     setAnswer(null);
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 8_000);
+    const timer = setTimeout(() => ctrl.abort(), 18_000);
     try {
-      const res = await fetch('/api/cognee/recall', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, topK: 3, searchType: 'CHUNKS' }),
-        signal: ctrl.signal,
-      });
-      const data = await res.json();
-      if (!data?.results?.length) {
+      const [synthRes, chunkRes] = await Promise.allSettled([
+        fetch('/api/cognee/recall', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, topK: 1, searchType: 'GRAPH_COMPLETION' }),
+          signal: ctrl.signal,
+        }).then((r) => r.json()),
+        fetch('/api/cognee/recall', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, topK: 3, searchType: 'CHUNKS' }),
+          signal: ctrl.signal,
+        }).then((r) => r.json()),
+      ]);
+
+      const synth = synthRes.status === 'fulfilled' ? synthRes.value?.results?.[0]?.text : null;
+      const chunks = chunkRes.status === 'fulfilled' ? (chunkRes.value?.results ?? []) : [];
+
+      if (!synth && chunks.length === 0) {
         const fallback = await deriveFallback(query);
         setAnswer({ ...fallback, fallback: true, reason: 'cognee returned no hits — showing seed-derived answer' });
       } else {
-        setAnswer(data);
+        setAnswer({ synthesis: synth, results: chunks });
       }
       onResultsHighlight?.(query);
     } catch (e) {
@@ -214,28 +225,38 @@ export function CogneeIntelligence({ onResultsHighlight }) {
                 ⚠ {answer.reason}
               </div>
             )}
-            {answer.results?.length > 0 ? (
+            {(answer.synthesis || answer.results?.length > 0) ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {answer.results.slice(0, 3).map((r, i) => (
-                  <div key={i} style={{
-                    padding: 12,
-                    background: i === 0 ? 'var(--accent-soft)' : 'var(--bg-subtle)',
-                    border: `1px solid ${i === 0 ? 'var(--accent-border)' : 'var(--border-subtle)'}`,
+                {answer.synthesis && (
+                  <div style={{
+                    padding: 14,
+                    background: 'var(--accent-soft)',
+                    border: '1px solid var(--accent-border)',
                     borderRadius: 'var(--radius-sm)',
-                    fontSize: 13,
-                    lineHeight: 1.55,
+                    fontSize: 13.5,
+                    lineHeight: 1.6,
                   }}>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
                       <span style={{
                         fontSize: 9, fontFamily: 'var(--mono)',
-                        color: i === 0 ? 'var(--accent-text)' : 'var(--text-tertiary)',
+                        color: 'var(--accent-text)',
                         textTransform: 'uppercase', letterSpacing: 1, fontWeight: 500,
                       }}>
-                        {i === 0 ? '✨ Top answer' : `Supporting hit ${i + 1}`}
+                        ✨ Graph-synthesized answer
+                      </span>
+                      <span style={{
+                        fontSize: 9, fontFamily: 'var(--mono)',
+                        padding: '1px 6px', borderRadius: 999,
+                        background: 'var(--bg-subtle)', color: 'var(--text-tertiary)',
+                      }}>
+                        GRAPH_COMPLETION
                       </span>
                     </div>
-                    {r.text}
+                    <div style={{ whiteSpace: 'pre-wrap' }}>{answer.synthesis}</div>
                   </div>
+                )}
+                {answer.results?.slice(0, 3).map((r, i) => (
+                  <ChunkHit key={r.node_id ?? i} hit={r} index={i} />
                 ))}
               </div>
             ) : (
@@ -277,6 +298,51 @@ function countConnections(g, id) {
     if (e.source === id || e.target === id) c++;
   }
   return c;
+}
+
+const CHIP_KEYS = ['node_type', 'persona_role', 'company_stage', 'industry', 'region', 'objection_type', 'rebuttal_pattern', 'outcome', 'quarter', 'weekday', 'trigger', 'account'];
+
+function ChunkHit({ hit, index }) {
+  const meta = hit?.metadata ?? {};
+  const chips = CHIP_KEYS
+    .filter((k) => meta[k] && typeof meta[k] === 'string')
+    .slice(0, 6)
+    .map((k) => ({ k, v: String(meta[k]) }));
+
+  return (
+    <div style={{
+      padding: 12,
+      background: 'var(--bg-subtle)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: 'var(--radius-sm)',
+      fontSize: 12.5,
+      lineHeight: 1.55,
+    }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span style={{
+          fontSize: 9, fontFamily: 'var(--mono)',
+          color: 'var(--text-tertiary)',
+          textTransform: 'uppercase', letterSpacing: 1, fontWeight: 500,
+        }}>
+          Evidence {index + 1}
+        </span>
+        {chips.map(({ k, v }) => (
+          <span key={k} style={{
+            fontSize: 9,
+            fontFamily: 'var(--mono)',
+            padding: '1px 6px',
+            borderRadius: 999,
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            color: 'var(--text-secondary)',
+          }}>
+            {k === 'node_type' ? v.replace(/_/g, ' ') : `${k.replace(/_/g, ' ')}: ${v}`}
+          </span>
+        ))}
+      </div>
+      <div style={{ whiteSpace: 'pre-wrap' }}>{hit.text}</div>
+    </div>
+  );
 }
 
 function StatBadge({ label, value, color, emphasis }) {
