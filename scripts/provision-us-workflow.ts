@@ -535,9 +535,8 @@ async function configureVoiceAgent(
   } catch (e) {
     const msg = (e as Error).message;
     console.log(`  · dynamic from_number rejected (${msg.slice(0, 120)})`);
-    // Fallback: static German number (since German demos are the primary use
-    // case right now). The US caller-ID path needs a workflow-level conditional
-    // which is out of scope for this one-shot provision.
+    // Fallback: static German number. HR expects the phone-number STRING
+    // as both id and name (not the PN… SID we see in available_options).
     try {
       await hr(`/versions/${versionId}/nodes/${agent.id}`, {
         method: "PUT",
@@ -549,17 +548,14 @@ async function configureVoiceAgent(
             ...existingConfig,
             from_number: {
               type: "static",
-              static: {
-                id: "PNb56badda3e5eefb6374a3ab139ebd34d",
-                name: "+498962824034",
-              },
+              static: { id: "+498962824034", name: "+498962824034" },
             },
           },
         }),
       });
       return { id: agent.id, dynamic: false, fallback: "DE static" };
     } catch (e2) {
-      console.log(`  · static fallback also failed: ${(e2 as Error).message.slice(0, 120)}`);
+      console.log(`  · static fallback also failed: ${(e2 as Error).message.slice(0, 200)}`);
       return null;
     }
   }
