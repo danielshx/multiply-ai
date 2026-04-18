@@ -77,6 +77,7 @@ function countryCodeFor(phone: string): string {
     "34": "ES",
     "31": "NL",
     "32": "BE",
+    "355": "AL",
   };
   return map[cc] ?? `+${cc}`;
 }

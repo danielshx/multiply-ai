@@ -3,12 +3,13 @@ import React, { useState } from 'react';
 import { Panel, Field, TextInput, TextArea, Button, IconPhone } from '@/components/multiply/ui';
 
 const COUNTRIES = [
-  { cc: '1',  iso: 'US', label: '🇺🇸 US',          minDigits: 10, placeholder: '555 123 4567' },
-  { cc: '49', iso: 'DE', label: '🇩🇪 Germany',     minDigits: 10, placeholder: '151 23456789' },
-  { cc: '44', iso: 'GB', label: '🇬🇧 UK',          minDigits: 10, placeholder: '7700 900123' },
-  { cc: '43', iso: 'AT', label: '🇦🇹 Austria',     minDigits: 10, placeholder: '660 1234567' },
-  { cc: '41', iso: 'CH', label: '🇨🇭 Switzerland', minDigits: 9,  placeholder: '78 123 45 67' },
-  { cc: '33', iso: 'FR', label: '🇫🇷 France',      minDigits: 9,  placeholder: '6 12 34 56 78' },
+  { cc: '1',   iso: 'US', label: '🇺🇸 US',          minDigits: 10, placeholder: '555 123 4567' },
+  { cc: '49',  iso: 'DE', label: '🇩🇪 Germany',     minDigits: 10, placeholder: '151 23456789' },
+  { cc: '44',  iso: 'GB', label: '🇬🇧 UK',          minDigits: 10, placeholder: '7700 900123' },
+  { cc: '43',  iso: 'AT', label: '🇦🇹 Austria',     minDigits: 10, placeholder: '660 1234567' },
+  { cc: '41',  iso: 'CH', label: '🇨🇭 Switzerland', minDigits: 9,  placeholder: '78 123 45 67' },
+  { cc: '33',  iso: 'FR', label: '🇫🇷 France',      minDigits: 9,  placeholder: '6 12 34 56 78' },
+  { cc: '355', iso: 'AL', label: '🇦🇱 Albania',     minDigits: 8,  placeholder: '69 123 4567' },
 ];
 
 // Parse one line of bulk input. Accepts:
