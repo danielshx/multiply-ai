@@ -119,6 +119,22 @@ export async function POST(req: Request) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", callId);
+
+    // Fire-and-forget: kick the sync endpoint a few times so session_id + early
+    // messages get pulled even if the dashboard tab isn't open. Each attempt
+    // just hits our own /sync/[callId] — the serverless fn runs independently
+    // and won't block this response.
+    const appUrl =
+      process.env.MULTIPLY_APP_URL ??
+      process.env.NEXT_PUBLIC_APP_URL ??
+      new URL(req.url).origin;
+    const schedule = [3000, 6000, 10000, 18000, 30000, 60000];
+    for (const delay of schedule) {
+      setTimeout(() => {
+        fetch(`${appUrl}/api/us-outreach/sync/${callId}`).catch(() => null);
+      }, delay);
+    }
+
     return NextResponse.json({
       ok: true,
       call_id: callId,

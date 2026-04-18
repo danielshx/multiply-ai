@@ -192,45 +192,49 @@ export default function UsOutreachDashboard() {
 }
 
 function Header({ connected }) {
+  const [syncing, setSyncing] = React.useState(false);
+  async function syncAll() {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      await fetch('/api/us-outreach/sync-all', { method: 'POST' });
+    } finally {
+      setTimeout(() => setSyncing(false), 800);
+    }
+  }
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingBottom: 8,
-      }}
-    >
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 8 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         <Wordmark size={16} />
-        <span
-          style={{
-            fontSize: 11,
-            color: 'var(--text-tertiary)',
-            fontFamily: 'var(--mono)',
-            padding: '2px 8px',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)',
-          }}
-        >
+        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)', padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
           /us-outreach
         </span>
-        <h1
-          className="serif"
-          style={{
-            fontSize: 22,
-            letterSpacing: -0.4,
-            fontWeight: 400,
-            color: 'var(--text)',
-          }}
-        >
+        <h1 className="serif" style={{ fontSize: 22, letterSpacing: -0.4, fontWeight: 400, color: 'var(--text)' }}>
           US Cold Calls · Paid Online Writing Jobs
         </h1>
       </div>
-      <Pill color={connected ? 'success' : 'neutral'} size="sm">
-        <Dot color={connected ? 'success' : 'neutral'} pulse={connected} size={5} />
-        {connected ? 'realtime connected' : 'connecting…'}
-      </Pill>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button
+          onClick={syncAll}
+          disabled={syncing}
+          style={{
+            fontSize: 11,
+            padding: '5px 12px',
+            background: 'var(--surface)',
+            border: '1px solid var(--border-strong)',
+            borderRadius: 'var(--radius-sm)',
+            color: syncing ? 'var(--text-tertiary)' : 'var(--text)',
+            cursor: syncing ? 'default' : 'pointer',
+            fontFamily: 'var(--mono)',
+          }}
+        >
+          {syncing ? 'syncing…' : '↻ refresh'}
+        </button>
+        <Pill color={connected ? 'success' : 'neutral'} size="sm">
+          <Dot color={connected ? 'success' : 'neutral'} pulse={connected} size={5} />
+          {connected ? 'realtime' : 'connecting…'}
+        </Pill>
+      </div>
     </div>
   );
 }
