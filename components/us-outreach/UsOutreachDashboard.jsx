@@ -21,7 +21,13 @@ export default function UsOutreachDashboard() {
   const [messageCounts, setMessageCounts] = useState({});
   const [lastMessageByCall, setLastMessageByCall] = useState({});
   const [autoOpenedIds, setAutoOpenedIds] = useState(new Set());
-  const [dbTotals, setDbTotals] = useState({ calls: 0, messages: 0 });
+  const [dbTotals, setDbTotals] = useState({
+    calls: 0,
+    messages: 0,
+    closed: 0,
+    failed: 0,
+    not_interested: 0,
+  });
 
   useEffect(() => {
     const sb = getBrowserSupabase();
@@ -40,17 +46,32 @@ export default function UsOutreachDashboard() {
         setLoading(false);
       });
 
-    // Poll true totals from the DB so the KPI strip can't drift even if
-    // Realtime hiccups. Every 4s.
+    // Poll authoritative DB counts so the KPI strip can never drift or shrink
+    // from transient state issues. Every 4s.
     const fetchTotals = async () => {
-      const [callsRes, msgsRes] = await Promise.all([
+      const [callsRes, msgsRes, closedRes, failedRes, notInterestedRes] = await Promise.all([
         sb.from('us_outreach_calls').select('*', { count: 'exact', head: true }),
         sb.from('us_outreach_messages').select('*', { count: 'exact', head: true }),
+        sb
+          .from('us_outreach_calls')
+          .select('*', { count: 'exact', head: true })
+          .eq('disposition', 'closed'),
+        sb
+          .from('us_outreach_calls')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'failed'),
+        sb
+          .from('us_outreach_calls')
+          .select('*', { count: 'exact', head: true })
+          .eq('disposition', 'not_interested'),
       ]);
       if (cancelled) return;
       setDbTotals({
         calls: callsRes.count ?? 0,
         messages: msgsRes.count ?? 0,
+        closed: closedRes.count ?? 0,
+        failed: failedRes.count ?? 0,
+        not_interested: notInterestedRes.count ?? 0,
       });
     };
     fetchTotals();
@@ -168,7 +189,8 @@ export default function UsOutreachDashboard() {
       if (c.connected_at) return true;
       return false;
     }).length;
-    const closed = calls.filter((c) => c.disposition === 'closed').length;
+    // Authoritative closed count from DB — never affected by in-memory state.
+    const closed = dbTotals.closed;
     const earnings = closed * commission;
     return { placed, connected: connectedCalls, closed, earnings };
   }, [calls, commission, dbTotals, messageCounts]);

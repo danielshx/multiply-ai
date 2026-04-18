@@ -117,7 +117,10 @@ export async function GET(
     null;
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (sessionId && call.hr_session_id !== sessionId) update.hr_session_id = sessionId;
-  if (run.status === "running" && call.status !== "live") update.status = "live";
+  // Only upgrade from triggered → live. NEVER downgrade a completed/failed
+  // row back to live (protects against a stale sync flipping a finalised
+  // call, which was making closed counts look unstable).
+  if (run.status === "running" && call.status === "triggered") update.status = "live";
   if (run.transcript_url) update.transcript_url = run.transcript_url;
   if (run.recording_url) update.recording_url = run.recording_url;
 
