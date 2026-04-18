@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Pill, Dot, Button, Avatar, IconMic, IconPause, IconPlay, IconStop, IconHand, IconWhisper, IconX } from './ui';
 import { TRANSCRIPT, LEAD, OBJECTIONS, QUEUED_ACTIONS, WHISPER_SUGGESTIONS, RESPONSES } from './mockData';
+import { MapPin } from './MapPin';
 
 export function LiveCall({ onClose, takeover, onTakeover, onResumeAgent, showToast }) {
   const [transcript, setTranscript] = useState([]);
@@ -487,6 +488,17 @@ function SystemNote({ children, kind = 'info' }) {
 }
 
 function ReasoningPanel({ thought, confidence, takeover, cogneeDossier, cogneeLoading }) {
+  const [munichTime, setMunichTime] = React.useState('');
+  React.useEffect(() => {
+    const tick = () => {
+      const t = new Date().toLocaleTimeString('de-DE', { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit' });
+      setMunichTime(`${t} · Munich local`);
+    };
+    tick();
+    const id = setInterval(tick, 15000);
+    return () => clearInterval(id);
+  }, []);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--bg-subtle)' }}>
       <div style={{ padding: '12px 24px', borderBottom: '1px solid var(--border-subtle)' }}>
@@ -495,6 +507,14 @@ function ReasoningPanel({ thought, confidence, takeover, cogneeDossier, cogneeLo
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+        <Section label="Lead HQ · prospector enriched" compact>
+          <MapPin
+            company={LEAD.company}
+            address="Maximilianstraße 12, 80539 München, Germany"
+            localTime={munichTime}
+          />
+        </Section>
+
         <Section label="Cognee dossier · pre-call recall" compact>
           {cogneeLoading ? (
             <div style={{ padding: 12, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)' }}>

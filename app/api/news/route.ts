@@ -49,14 +49,18 @@ const FEEDS: Record<string, { url: string; type: Signal["type"]; color: string; 
 };
 
 function stripTags(s: string): string {
-  return s
-    .replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1")
-    .replace(/<[^>]+>/g, "")
+  // First decode entities so HTML tag detection works even when encoded
+  const decoded = s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&")
     .replace(/&#39;/g, "'")
+    .replace(/&#34;/g, '"')
     .replace(/&quot;/g, '"')
     .replace(/&nbsp;/g, " ")
-    .trim();
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1");
+  // Now strip all HTML tags (including nested anchors from google-news)
+  return decoded.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function extractCompany(title: string): string {
