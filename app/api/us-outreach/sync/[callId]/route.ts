@@ -18,7 +18,9 @@ export const dynamic = "force-dynamic";
  * This is a fallback for when HR's outgoing webhook doesn't push live events.
  */
 
-const HR_BASE = "https://api.eu.happyrobot.ai/v2";
+// Use the same base as the trigger route — api.eu.happyrobot.ai reliably
+// returns "fetch failed" from Vercel for these endpoints.
+const HR_BASE = "https://platform.eu.happyrobot.ai/api/v2";
 
 type RunDetails = {
   id?: string;

@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const supabase = getServerSupabase();
   const key = process.env.HR_API_KEY;
-  const HR_BASE = "https://api.eu.happyrobot.ai/v2";
+  const HR_BASE = "https://platform.eu.happyrobot.ai/api/v2";
 
   const { data: calls } = await supabase
     .from("us_outreach_calls")

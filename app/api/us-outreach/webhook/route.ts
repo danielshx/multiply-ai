@@ -107,8 +107,10 @@ async function handleHrEvent(
 ) {
   const supabase = getServerSupabase();
 
-  // HR includes our trigger-payload variables as data.<key>.
-  // Fallback chain: explicit call_id → run_id lookup → session_id lookup.
+  // HR fires `session.status_changed` with shape:
+  //   { run_id, session_id, status: { current, previous, updated_at }, ... }
+  // and `message.created` (if ever) with shape:
+  //   { role, content, id, lead_id|call_id }
   const callIdFromPayload =
     (data.call_id as string | undefined) ?? undefined;
   const runId =
@@ -140,6 +142,34 @@ async function handleHrEvent(
   }
 
   switch (eventType) {
+    // HR's primary event type for the voice-agent template.
+    case "session.status_changed": {
+      if (!callId) break;
+      const current =
+        ((data.status as { current?: string } | undefined)?.current as string | undefined) ??
+        undefined;
+      const update: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+      if (sessionId) update.hr_session_id = sessionId;
+      if (runId) update.hr_run_id = runId;
+      if (current === "queued" || current === "in-progress") update.status = "live";
+      if (current === "completed") update.status = "completed";
+      if (current === "failed" || current === "error") update.status = "failed";
+      await supabase.from("us_outreach_calls").update(update).eq("id", callId);
+
+      // On session start, also kick a sync so we grab the first messages
+      // without waiting for the client to poll.
+      if (current === "in-progress" || current === "completed") {
+        const appUrl =
+          process.env.MULTIPLY_APP_URL ??
+          process.env.NEXT_PUBLIC_APP_URL ??
+          "https://multiply-danielshxs-projects.vercel.app";
+        fetch(`${appUrl}/api/us-outreach/sync/${callId}`).catch(() => null);
+      }
+      break;
+    }
+
     case "run.started":
     case "session.started":
     case "call.started": {
