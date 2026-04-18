@@ -22,11 +22,14 @@ export async function GET() {
     .order("created_at", { ascending: false })
     .limit(5);
 
-  const { data: messages } = await supabase
+  const { data: messages, error: messagesErr } = await supabase
     .from("us_outreach_messages")
     .select("id, call_id, role, content, ts")
     .order("ts", { ascending: false })
     .limit(10);
+  const { count: messagesCount } = await supabase
+    .from("us_outreach_messages")
+    .select("*", { count: "exact", head: true });
 
   const { data: events } = await supabase
     .from("hr_events")
@@ -85,6 +88,8 @@ export async function GET() {
   return NextResponse.json({
     calls,
     messages,
+    messages_total_count: messagesCount,
+    messages_select_error: messagesErr?.message ?? null,
     events,
     latest_run_hr_response: latestRunDump,
     messages_probes: messagesProbes,

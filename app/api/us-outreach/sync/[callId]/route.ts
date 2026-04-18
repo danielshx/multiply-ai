@@ -166,32 +166,31 @@ export async function GET(
             hr_msg_id: m.id,
           }));
 
-        if (newRows.length > 0) {
-          const { data: inserted, error: insErr } = await supabase
+        // Insert rows one-by-one so a single duplicate doesn't abort the batch.
+        // The unique index on hr_msg_id (partial) is idempotency protection.
+        let insertedCount = 0;
+        const errors: string[] = [];
+        for (const row of newRows) {
+          const { error: insErr } = await supabase
             .from("us_outreach_messages")
-            .insert(newRows)
-            .select();
+            .insert(row);
           if (insErr) {
-            return NextResponse.json({
-              ok: false,
-              session_id: sessionId,
-              synced_messages: 0,
-              insert_error: insErr.message,
-              attempted: newRows.length,
-              sample_row: newRows[0],
-            });
+            if (!insErr.message.includes("duplicate")) {
+              errors.push(insErr.message.slice(0, 120));
+            }
+          } else {
+            insertedCount++;
           }
-          messageCount = inserted?.length ?? 0;
-          if (messageCount === 0 && newRows.length > 0) {
-            return NextResponse.json({
-              ok: true,
-              session_id: sessionId,
-              synced_messages: 0,
-              attempted: newRows.length,
-              hint: "insert returned no rows — RLS silently filtered or constraint quiet-failed",
-              sample_row: newRows[0],
-            });
-          }
+        }
+        messageCount = insertedCount;
+        if (errors.length > 0) {
+          return NextResponse.json({
+            ok: false,
+            session_id: sessionId,
+            synced_messages: insertedCount,
+            insert_errors: errors.slice(0, 3),
+            attempted: newRows.length,
+          });
         }
       }
     } catch (err) {
