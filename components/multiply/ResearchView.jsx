@@ -14,6 +14,7 @@ export function ResearchView({ showToast }) {
   const [connected, setConnected] = useState(false);
   const [focusKey, setFocusKey] = useState(null);
   const [contactsRow, setContactsRow] = useState(null);
+  const [pendingRuns, setPendingRuns] = useState([]);
   const lastRunRef = useRef(null);
 
   useEffect(() => {
@@ -87,6 +88,7 @@ export function ResearchView({ showToast }) {
           total_found: r.total_found ?? null,
           latest_at: r.created_at,
           items: [r],
+          pending: false,
         });
       } else {
         g.items.push(r);
@@ -96,10 +98,45 @@ export function ResearchView({ showToast }) {
         if (g.total_found == null && r.total_found != null) g.total_found = r.total_found;
       }
     }
-    return Array.from(byKey.values())
-      .map((g) => ({ ...g, status: deriveRunStatus(g) }))
-      .sort((a, b) => (a.latest_at > b.latest_at ? -1 : 1));
-  }, [rows]);
+
+    const dbGroups = Array.from(byKey.values()).map((g) => ({
+      ...g,
+      status: deriveRunStatus(g),
+    }));
+
+    const matchesPending = (g, p) =>
+      g.agent_name === p.agent &&
+      g.topic === p.topic &&
+      new Date(g.latest_at).getTime() >= p.at - 5_000;
+
+    const pendingGroups = pendingRuns
+      .filter((p) => !dbGroups.some((g) => matchesPending(g, p)))
+      .map((p) => ({
+        key: `pending:${p.id}`,
+        agent_name: p.agent,
+        topic: p.topic,
+        search_query: null,
+        total_found: null,
+        latest_at: new Date(p.at).toISOString(),
+        items: [],
+        pending: true,
+        status: 'dispatching',
+      }));
+
+    return [...pendingGroups, ...dbGroups].sort((a, b) =>
+      a.latest_at > b.latest_at ? -1 : 1,
+    );
+  }, [rows, pendingRuns]);
+
+  // Garbage-collect pending entries older than 3 min (HR should have responded by then).
+  useEffect(() => {
+    if (pendingRuns.length === 0) return undefined;
+    const id = setInterval(() => {
+      const cutoff = Date.now() - 3 * 60 * 1000;
+      setPendingRuns((prev) => prev.filter((p) => p.at > cutoff));
+    }, 5000);
+    return () => clearInterval(id);
+  }, [pendingRuns.length]);
 
   useEffect(() => {
     if (focusKey) return;
@@ -119,6 +156,10 @@ export function ResearchView({ showToast }) {
       return false;
     }
     setSubmitting(true);
+    const pendingId = `${agentVal}-${topicVal}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const pendingEntry = { id: pendingId, agent: agentVal, topic: topicVal, at: Date.now() };
+    setPendingRuns((prev) => [pendingEntry, ...prev]);
+    setFocusKey(`pending:${pendingId}`);
     lastRunRef.current = { topic: topicVal, agent: agentVal, at: Date.now() };
     try {
       const res = await fetch('/api/research/agent', {
@@ -129,6 +170,7 @@ export function ResearchView({ showToast }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
         showToast?.(`Research agent failed: ${data.error ?? res.statusText}`, 'danger');
+        setPendingRuns((prev) => prev.filter((p) => p.id !== pendingId));
         return false;
       }
       const verb = source === 'rerun' ? 'Re-dispatched' : 'Dispatched';
@@ -136,6 +178,7 @@ export function ResearchView({ showToast }) {
       return true;
     } catch (err) {
       showToast?.(`Network error: ${err?.message ?? 'unknown'}`, 'danger');
+      setPendingRuns((prev) => prev.filter((p) => p.id !== pendingId));
       return false;
     } finally {
       setSubmitting(false);
@@ -357,11 +400,12 @@ function RunsList({ groups, focusKey, onPick, loading, onRerun, submitting }) {
 
 function RunStatusPill({ status, group }) {
   const map = {
-    scraping:  { label: 'scraping',   color: 'info',    pulse: true },
-    enriching: { label: 'enriching',  color: 'info',    pulse: true },
-    done:      { label: 'done',       color: 'success', pulse: false },
-    stalled:   { label: 'stalled',    color: 'warning', pulse: false },
-    empty:     { label: 'empty',      color: 'neutral', pulse: false },
+    dispatching: { label: 'dispatching', color: 'accent',  pulse: true },
+    scraping:    { label: 'scraping',    color: 'info',    pulse: true },
+    enriching:   { label: 'enriching',   color: 'info',    pulse: true },
+    done:        { label: 'done',        color: 'success', pulse: false },
+    stalled:     { label: 'stalled',     color: 'warning', pulse: false },
+    empty:       { label: 'empty',       color: 'neutral', pulse: false },
   };
   const m = map[status] ?? map.empty;
   const subtitle =
