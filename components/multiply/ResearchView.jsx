@@ -5,6 +5,10 @@ import { Pill, Dot } from './ui';
 
 const PAGE_SIZE = 500;
 
+// Matches MAX_ENRICH in the HR "Parse Places" Python node.
+// Only the first N candidates with websites are sent through the enrichment loop.
+const ENRICHMENT_BATCH_CAP = 10;
+
 export function ResearchView({ showToast }) {
   const [topic, setTopic] = useState('');
   const [agent, setAgent] = useState('');
@@ -504,7 +508,7 @@ function ResultsTable({ group, loading, onOpenContacts }) {
                   <DescriptionCell row={r} />
                 </Td>
                 <Td>
-                  <ContactsCell row={r} onOpen={() => onOpenContacts?.(r)} />
+                  <ContactsCell row={r} runStatus={group?.status} onOpen={() => onOpenContacts?.(r)} />
                 </Td>
                 <Td style={{ textAlign: 'right', fontFamily: 'var(--mono)' }}>
                   {r.rating != null ? (
@@ -553,9 +557,7 @@ function DescriptionCell({ row }) {
   return <span style={{ color: 'var(--text-quaternary)' }}>—</span>;
 }
 
-const ENRICH_TIMEOUT_MS = 5 * 60 * 1000;
-
-function ContactsCell({ row, onOpen }) {
+function ContactsCell({ row, runStatus, onOpen }) {
   const contacts = Array.isArray(row.contacts) ? row.contacts : [];
   const status = row.enrichment_status;
 
@@ -587,11 +589,12 @@ function ContactsCell({ row, onOpen }) {
     );
   }
 
-  const created = row.created_at ? new Date(row.created_at).getTime() : 0;
-  const ageMs = created ? Date.now() - created : 0;
-  const stuck = ageMs > ENRICH_TIMEOUT_MS;
+  // If the run has finished its enrichment batch, stop showing "scraping…" — the
+  // remaining pending rows were beyond the cap and won't ever be enriched.
+  const runFinishedEnrichment =
+    runStatus === 'done' || runStatus === 'stalled';
 
-  if ((status === 'enriching' || status === 'pending') && !stuck) {
+  if ((status === 'enriching' || status === 'pending') && !runFinishedEnrichment) {
     return <span style={{ color: 'var(--text-quaternary)', fontSize: 11 }}>scraping…</span>;
   }
   return <span style={{ color: 'var(--text-quaternary)', fontSize: 11 }}>—</span>;
@@ -841,10 +844,14 @@ function deriveRunStatus(group) {
     return ageMs > 10 * 60 * 1000 ? 'stalled' : 'scraping';
   }
 
-  const pending = items.filter(
-    (r) => r.enrichment_status === 'pending' || r.enrichment_status === 'enriching',
+  // HR's Parse Places only enriches the first N candidates with websites.
+  // Beyond that, rows stay 'pending' forever — not a real scraping state.
+  const withWebsite = items.filter((r) => !!r.website);
+  const expectedEnriched = Math.min(withWebsite.length, ENRICHMENT_BATCH_CAP);
+  const enrichmentTerminal = withWebsite.filter(
+    (r) => r.enrichment_status === 'enriched' || r.enrichment_status === 'failed',
   );
-  if (pending.length > 0) {
+  if (enrichmentTerminal.length < expectedEnriched) {
     return ageMs > 10 * 60 * 1000 ? 'stalled' : 'enriching';
   }
   return 'done';
