@@ -9,13 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "format": "prettier --write .",
-    "test:e2e": "playwright test",
-    "cognee:up": "docker compose -f docker-compose.cognee.yml up -d",
-    "cognee:down": "docker compose -f docker-compose.cognee.yml down",
-    "cognee:logs": "docker compose -f docker-compose.cognee.yml logs -f cognee",
-    "cognee:seed": "tsx scripts/seed-cognee.ts",
-    "cognee:reset": "tsx scripts/seed-cognee.ts --reset"
+    "format": "prettier --write ."
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -40,7 +34,6 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.48.0",
     "@types/node": "^22.7.5",
     "@types/nodemailer": "^8.0.0",
     "@types/react": "^18.3.11",

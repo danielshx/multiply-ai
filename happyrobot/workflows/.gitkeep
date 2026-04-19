@@ -1,2 +1,0 @@
-# Exported HR workflow JSONs land here. Workflow JSONs are gitignored by default
-# (see root .gitignore). To version one explicitly: git add -f happyrobot/workflows/<name>.json
