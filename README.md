@@ -1,22 +1,29 @@
 # Multiply — the Swarm Outreach Engine
 
-> **7 specialist agent roles, 25+ leads in parallel, one dashboard — across phone · SMS · email · chat.**
+> **7 specialist agent roles, 25 leads in parallel, one dashboard — across phone · SMS · email · chat.**
 > Each lead gets a Prospector, a Researcher, a Qualifier, a Negotiator and a Closer working in sequence — live. The Orchestrator picks the next role, the next channel, the next move. Every objection is remembered. Every win teaches the next 25.
 
 **🔗 Live demo:** **https://multiply-danielshxs-projects.vercel.app/**
 **🏆 Built for:** HappyRobot × TUM.ai Makeathon 2026 — Challenge: *Build an Autonomous AI Sales Product*
 
 <p align="center">
-  <a href="https://github.com/danielshx/Multiply/raw/main/public/readme/multiply-promo.mp4">
-    <img src="public/readme/multiply-promo.gif" alt="Multiply — 30-second cinematic promo (click for full-quality MP4)" width="880" />
+  <a href="https://raw.githubusercontent.com/danielshx/Multiply/main/public/readme/multiply-promo.mp4">
+    <img src="public/readme/agent-orchestra.png" alt="▶ Watch the 30-second Multiply promo" width="820" />
   </a>
   <br/>
   <sub>
-    🎬 <b>The 30-second cinematic promo.</b>
-    <a href="https://github.com/danielshx/Multiply/raw/main/public/readme/multiply-promo.mp4">▶ watch in full HD (MP4)</a>
+    🎬 <b><a href="https://raw.githubusercontent.com/danielshx/Multiply/main/public/readme/multiply-promo.mp4">Watch the 30-second cinematic promo</a></b>
+    · <a href="public/readme/multiply-promo.mp4">local file</a>
     · <a href="https://multiply-danielshxs-projects.vercel.app/">open live demo</a>
   </sub>
 </p>
+
+<details>
+<summary>▶ Or play inline here (click to expand)</summary>
+
+<video src="https://raw.githubusercontent.com/danielshx/Multiply/main/public/readme/multiply-promo.mp4" controls muted loop playsinline width="100%"></video>
+
+</details>
 
 <p align="center">
   <img src="public/readme/agent-orchestra.png" alt="Multiply Agent Orchestra — 7 specialist roles orchestrated around a central Orchestrator" width="680" />
@@ -279,3 +286,4 @@ Skeleton repo, brain repo, workflow exports, demo data and five live personas ar
 ---
 
 > **One-liner for the jury:** *We didn't build a better sales agent. We built the operating system for 25 of them — with the memory, the controls, and the dashboard to run them like a real team.*
+:)
