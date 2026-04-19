@@ -197,6 +197,15 @@ export function LiveMonitor() {
     const warm = leads.filter(l => l.current_mode === 'warm' && !isClosedStage(l.stage)).length;
     const cold = leads.filter(l => l.current_mode === 'cold' && !isClosedStage(l.stage)).length;
     const realMsgs = messages.filter(m => m.role !== 'system');
+    // Real-time fire counters
+    const queued = messages.filter(
+      m => m.role === 'system' && m.channel === 'phone' &&
+        typeof m.content === 'string' && m.content.includes('queued via HR')
+    ).length;
+    const transcripts = messages.filter(
+      m => m.role === 'agent' && m.channel === 'phone'
+    ).length;
+    const leadReplies = messages.filter(m => isLeadRole(m.role)).length;
     const channelCount = (ch) => realMsgs.filter(m => m.channel === ch).length;
     return {
       total, active, closed, conversation, hot, warm, cold,
@@ -204,6 +213,7 @@ export function LiveMonitor() {
       sms: channelCount('sms'),
       email: channelCount('email'),
       msgs: realMsgs.length,
+      queued, transcripts, leadReplies,
     };
   }, [leads, messages, messagesByLead]);
 
@@ -231,6 +241,7 @@ export function LiveMonitor() {
       {showSettings && (
         <SettingsPanel watcher={watcherStatus} lastResult={watcherStatus.lastResult} />
       )}
+
 
       {preview && (
         <ConfirmFireModal

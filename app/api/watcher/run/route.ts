@@ -46,6 +46,10 @@ type Body = {
   max?: number;
   concurrency?: number;
   enabled?: boolean;
+  include_leads?: boolean;
+  include_candidates?: boolean;
+  include_us_outreach?: boolean;
+  with_cognee?: boolean;
 };
 
 export async function POST(req: Request) {
@@ -70,6 +74,10 @@ export async function POST(req: Request) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ...(body.since ? { since: body.since } : {}),
+      ...(body.include_leads !== undefined ? { include_leads: body.include_leads } : {}),
+      ...(body.include_candidates !== undefined ? { include_candidates: body.include_candidates } : {}),
+      ...(body.include_us_outreach !== undefined ? { include_us_outreach: body.include_us_outreach } : {}),
+      ...(body.with_cognee !== undefined ? { with_cognee: body.with_cognee } : {}),
       limit: 50000, // effectively unlimited — `max` further down controls actual fan-out
     }),
     cache: "no-store",

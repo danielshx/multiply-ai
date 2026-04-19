@@ -235,15 +235,9 @@ export function ResearchView({ showToast }) {
 function Header({ connected, totalRows, totalRuns }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 4 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <span style={{ fontSize: 18 }}>🔎</span>
-        <h1 style={{ fontSize: 20, letterSpacing: -0.3, fontWeight: 500, color: 'var(--text)', margin: 0 }}>
-          Research Agent
-        </h1>
-        <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)', padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
-          googlemaps_candidates
-        </span>
-      </div>
+      <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--mono)', padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}>
+        source: googlemaps_candidates
+      </span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <Pill color="neutral" size="sm">
           <span style={{ fontFamily: 'var(--mono)' }}>{totalRuns}</span> runs

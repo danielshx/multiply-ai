@@ -6,6 +6,7 @@ import { AgentDeployment } from './AgentDeployment';
 import { Dashboard } from './Dashboard';
 import { LiveCall } from './LiveCall';
 import { LiveMonitor } from './LiveMonitor';
+import { DatabaseView } from './DatabaseView';
 import { AgentTrace } from './AgentTrace';
 import { KnowledgeGraph } from './KnowledgeGraph';
 import { LiveActivityIndicator } from './LiveActivity';
@@ -145,6 +146,7 @@ export default function App() {
             />
           )}
           {view === 'live' && <LiveMonitor />}
+          {view === 'database' && <DatabaseView />}
           {view === 'trace' && <AgentTrace />}
           {view === 'research' && <ResearchView showToast={showToast} />}
           {view === 'graph' && <KnowledgeGraph />}
@@ -174,6 +176,7 @@ export default function App() {
             case 'view-trace':    return setView('trace');
             case 'view-research': return setView('research');
             case 'view-live':     return setView('live');
+            case 'view-database': return setView('database');
             case 'view-dashboard':return setView('dashboard');
             case 'replay-tour':   return replayTour();
             case 'pitch-mode':
@@ -246,10 +249,10 @@ function TopBar({ view, setView, agentsPaused, onTogglePause, onOpenResearch }) 
       <div style={{ display: 'flex', gap: 1 }}>
         <TabButton active={view === 'dashboard'} onClick={() => setView('dashboard')}>Pipeline</TabButton>
         <TabButton active={view === 'live'} onClick={() => setView('live')} live>Live</TabButton>
+        <TabButton active={view === 'database'} onClick={() => setView('database')}>Database</TabButton>
         <TabButton active={view === 'orchestra'} onClick={() => setView('orchestra')}>Orchestra</TabButton>
         <TabButton active={view === 'graph'} onClick={() => setView('graph')}>Knowledge</TabButton>
         <TabButton active={view === 'trace'} onClick={() => setView('trace')}>Trace</TabButton>
-        <TabButton active={view === 'research'} onClick={() => setView('research')}>Research</TabButton>
       </div>
 
       <div style={{ flex: 1 }} />
