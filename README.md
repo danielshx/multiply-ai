@@ -1,6 +1,6 @@
 # Multiply — the Swarm Outreach Engine
 
-> **7 specialist agent roles, 25 leads in parallel, one dashboard — across phone · SMS · email · chat.**
+> **7 specialist agent roles, multiple leads in parallel, one dashboard — across phone · SMS · email · chat.**
 > Each lead gets a Prospector, a Researcher, a Qualifier, a Negotiator and a Closer working in sequence — live. The Orchestrator picks the next role, the next channel, the next move. Every objection is remembered. Every win teaches the next 25.
 
 **🔗 Live demo:** **https://multiply-danielshxs-projects.vercel.app/**
