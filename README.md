@@ -29,7 +29,7 @@
   <img src="public/readme/agent-orchestra.png" alt="Multiply Agent Orchestra — 7 specialist roles orchestrated around a central Orchestrator" width="680" />
 </p>
 
-> **7 specialist roles × 25 parallel leads = the Swarm.**
+> **7 specialist roles × 25 parallel leads = the Swarm.** 
 > Signal Hunter finds intent. Prospector picks the target. Researcher enriches. Personaliser scripts. Qualifier asks. Negotiator handles objections. Closer books. The Orchestrator picks *which role takes the next turn, on which channel, for which lead* — 25 conversations at once.
 
 **Hero demo — "Live Swarm":** during our 3-minute pitch the system calls 5 team members on 5 different phones, in parallel, in front of the jury. One click. Five real conversations. Five real outcomes on the dashboard. No video, no mock — live telephony, live mode-flips, live booking into our Google Calendar.
